@@ -1,172 +1,83 @@
-# SecureX — Ozow Payout Webhooks
+# SecureX API
 
-## API Documentation
+Escrow platform backend — ASP.NET Core 8, PostgreSQL (RDS), Ozow payments.
 
-For full request/response schemas and hash validation rules, see:
+## Stack
 
-- [docs/ozow-webhooks-api.md](docs/ozow-webhooks-api.md)
-- [docs/ozow-webhooks-openapi.yaml](docs/ozow-webhooks-openapi.yaml)
-
-## Setup
-
-```bash
-npm install
-cp .env.example .env   # fill in OZOW_SITE_CODE, OZOW_API_KEY, OZOW_ACCOUNT_NUMBER_DECRYPTION_KEY
-npm run dev
-```
-
-`npm run start` now attempts to start PostgreSQL automatically using Docker Compose before booting the API.
-
-## PostgreSQL (optional, recommended for production)
-
-Set these in `.env`:
-
-```dotenv
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/securex
-DATABASE_SSL=false
-```
-
-Initialize tables:
-
-```bash
-npm run db:init
-```
-
-Manual DB control commands:
-
-```bash
-npm run db:up
-npm run db:down
-```
-
-To disable automatic DB startup for a run:
-
-```bash
-AUTO_START_DB=false npm run start
-```
-
-When `DATABASE_URL` is set, notification idempotency and payout status history are persisted in PostgreSQL.
-When `DATABASE_URL` is not set, the app falls back to in-memory notification deduplication.
-
-## Send Ozow these three values to activate staging
-
-| Field | Value |
+| Layer | Technology |
 |---|---|
-| Notification URL | `https://securex-btit.onrender.com/securex/payout-notification` |
-| Verification URL | `https://securex-btit.onrender.com/securex/payout-verify` |
-| Access Token | `ACCESS TOKEN` |
-
-The Access Token is a static 24-character string used by Ozow when calling your webhooks.
-
-## Ozow handoff checklist
-
-Share these exact values with Ozow:
-- Notification URL: where Ozow posts payout response variables.
-- Verification URL: where Ozow verifies payout requests before processing.
-- Access Token: static 24-character webhook security token.
-
-Before sharing, confirm both URLs are publicly reachable over HTTPS.
-
-For local testing, use [ngrok](https://ngrok.com): `ngrok http 3000`
+| API | ASP.NET Core 8 |
+| Database | PostgreSQL 16 on AWS RDS (af-south-1) |
+| Payments | Ozow (inbound collection + outbound payout) |
+| KYC | SmileID + ThisIsMe AVS |
+| Auth | JWT |
+| Hosting | AWS ECS Fargate (af-south-1) |
+| Load Balancer | AWS ALB — `securex-alb-1751040376.af-south-1.elb.amazonaws.com` |
 
 ## Endpoints
 
-**`POST /securex/payout-notification`**
-Ozow posts the payout outcome here (Complete, Cancelled, Error).
+### Public
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/health` | Health check |
+| POST | `/securex/payout-verify` | Ozow pre-payout verification webhook |
+| POST | `/securex/payout-notification` | Ozow payout outcome webhook |
 
-This implementation now:
-- Authenticates using `AccessToken` header (or `Authorization: Bearer ...` fallback).
-- Validates required notification fields.
-- Recomputes and verifies `hashCheck` using Ozow's notification hash order:
-	- `payoutId + siteCode + merchantReference + customerMerchantReference + payoutStatus + payoutSubStatus + apiKey`
-- Handles duplicate notifications safely by ignoring duplicate events for the same `payoutId + status + subStatus` combination.
-- Returns HTTP 200 for valid/invalid notifications so Ozow receives an acknowledgement.
+### Transactions (JWT required)
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/transactions` | Create deal |
+| GET | `/api/transactions/{id}` | Get deal by ID |
+| GET | `/api/transactions/ref/{dealReference}` | Get deal by reference |
+| GET | `/api/transactions/fee-preview` | Preview fee calculation |
+| POST | `/api/transactions/{id}/start-buyer-kyc` | Initiate buyer KYC |
+| POST | `/api/transactions/kyc-webhook` | SmileID KYC result callback |
+| POST | `/api/transactions/{id}/mark-delivered` | Seller marks item delivered |
+| POST | `/api/transactions/{id}/accept` | Buyer accepts item → triggers payout |
+| POST | `/api/transactions/{id}/reject` | Buyer rejects item → raises dispute |
+| POST | `/api/transactions/{id}/resolve-dispute` | Admin resolves dispute |
+| GET | `/api/transactions/{id}/audit` | Full audit log |
 
-**`POST /securex/payout-verify`**
-Ozow calls this before processing each payout.
+### Users (JWT required)
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/users/{id}` | Get user |
+| POST | `/api/users/{id}/bank-details` | Save seller bank details |
+| GET | `/api/users/banks` | List available banks (Ozow proxy) |
 
-This implementation now:
-- Authenticates using `AccessToken` header (or `Authorization: Bearer ...` fallback).
-- Validates required request fields.
-- Recomputes and verifies `hashCheck` using Ozow's SHA-512 algorithm.
-- Returns HTTP 200 with:
-	- `isVerified: true` and `accountNumberDecryptionKey` when valid.
-	- `isVerified: false` plus `reason` when invalid.
-
-### Environment variables used by payout verification webhook
+## Environment Variables
 
 | Variable | Purpose |
 |---|---|
-| `OZOW_ACCESS_TOKEN` | Access token Ozow sends in `AccessToken` header |
-| `OZOW_API_KEY` | Used to recompute `hashCheck` |
-| `OZOW_ACCOUNT_NUMBER_DECRYPTION_KEY` | AES key returned to Ozow as `accountNumberDecryptionKey` |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `DATABASE_SSL` | Set `true` for RDS |
+| `JWT_SECRET` | JWT signing secret |
+| `OZOW_ACCESS_TOKEN` | Webhook security token |
+| `OZOW_API_KEY` | Ozow API key |
+| `OZOW_SITE_CODE` | Ozow site code |
+| `OZOW_PRIVATE_KEY` | Ozow private key |
+| `OZOW_PAYOUT_API_KEY` | Ozow payout API key |
+| `OZOW_PAYOUT_BASE_URL` | Staging or production payout base URL |
+| `OZOW_ACCOUNT_NUMBER_DECRYPTION_KEY` | AES key returned on payout verify |
+| `SMILEID_PARTNER_ID` | SmileID partner ID |
+| `SMILEID_API_KEY` | SmileID API key |
+| `SMILEID_BASE_URL` | SmileID base URL |
+| `THISISME_API_KEY` | ThisIsMe AVS API key |
+| `THISISME_BASE_URL` | ThisIsMe base URL |
 
-## Local webhook verification test
+## Deploy
 
-Run your API first in one terminal:
-
-```bash
-npm run dev
-```
-
-Then run the test in another terminal:
-
-```bash
-npm run test:payout-verify
-```
-
-Optional override if your webhook runs elsewhere:
-
-```bash
-OZOW_VERIFY_WEBHOOK_URL='http://localhost:3000/securex/payout-verify' npm run test:payout-verify
-```
-
-The script sends one valid hash request and one invalid hash request and asserts:
-- valid request returns HTTP 200 and `isVerified=true`
-- invalid request returns HTTP 200 and `isVerified=false`
-
-### Expected passing output
-
-When everything is configured correctly, `npm run test:payout-verify` should print:
-
-```text
-Testing webhook: http://localhost:3000/securex/payout-verify
-Valid hash response: 200 { ... isVerified: true, accountNumberDecryptionKey: '...' ... }
-Invalid hash response: 200 { ... isVerified: false, reason: 'Invalid hash check' ... }
-Webhook verification tests passed.
-```
-
-## Local webhook notification test
-
-Run your API first in one terminal:
+Push to `main` — GitHub Actions builds the Docker image, pushes to ECR, and deploys to ECS automatically.
 
 ```bash
-npm run dev
+git push origin main
 ```
 
-Then run the notification test in another terminal:
+## Local Development
 
 ```bash
-npm run test:payout-notification
+cd SecureX.Api
+dotnet run
 ```
 
-Optional override if your notification webhook runs elsewhere:
-
-```bash
-OZOW_NOTIFICATION_WEBHOOK_URL='http://localhost:3000/securex/payout-notification' npm run test:payout-notification
-```
-
-The script sends:
-- one valid notification (expected `processed=true`)
-- the same valid notification again (expected `duplicate=true`)
-- one invalid hash notification (expected `hashValid=false`)
-
-### Local run notes
-
-- The API loads values from `.env` first and falls back to `.env.example` in local/dev if required Ozow variables are missing.
-- If `npm run start` exits immediately, check whether port `3000` is already in use and run on another port, for example:
-
-```bash
-PORT=3100 npm run start
-OZOW_VERIFY_WEBHOOK_URL='http://localhost:3100/securex/payout-verify' npm run test:payout-verify
-``
+API runs on `http://localhost:8080`. Swagger UI available at `http://localhost:8080/swagger` in development.
