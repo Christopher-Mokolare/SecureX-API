@@ -1,4 +1,14 @@
+# Node
 node_modules/
+*.log
+
+# Env
 .env
 .env.local
-*.log
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/

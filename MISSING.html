@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SecureX — Outstanding Items</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 15px; color: #1a1a1a; background: #f5f5f5; padding: 40px 20px; }
+    .page { max-width: 900px; margin: 0 auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); padding: 48px 56px; }
+
+    h1 { font-size: 26px; font-weight: 700; color: #111; margin-bottom: 4px; }
+    .meta { font-size: 13px; color: #888; margin-bottom: 8px; }
+    .intro { font-size: 14px; color: #555; margin-bottom: 16px; }
+
+    .legend { display: flex; gap: 20px; background: #f9f9f9; border: 1px solid #e5e5e5; border-radius: 6px; padding: 10px 16px; margin-bottom: 32px; font-size: 13px; }
+    .legend span { display: flex; align-items: center; gap: 6px; }
+
+    hr { border: none; border-top: 1px solid #ebebeb; margin: 32px 0; }
+
+    h2 { font-size: 17px; font-weight: 700; color: #fff; background: #1a1a2e; padding: 10px 16px; border-radius: 6px; margin-bottom: 20px; }
+    h3 { font-size: 15px; font-weight: 600; color: #1a1a2e; margin-bottom: 12px; border-left: 4px solid #4f46e5; padding-left: 10px; }
+
+    .card { background: #fafafa; border: 1px solid #e8e8e8; border-radius: 8px; padding: 20px 24px; margin-bottom: 20px; }
+    .label { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 12px; margin-left: 8px; vertical-align: middle; }
+    .label-both { background: #ede9fe; color: #5b21b6; }
+    .label-be { background: #dbeafe; color: #1d4ed8; }
+    .label-fe { background: #fce7f3; color: #9d174d; }
+
+    .section-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+    .missing { color: #dc2626; }
+    .matters { color: #d97706; }
+    .build { color: #059669; }
+    .decision { color: #7c3aed; }
+    .impact { color: #dc2626; }
+    .once { color: #059669; }
+
+    p { margin-bottom: 10px; line-height: 1.6; color: #444; font-size: 14px; }
+    ul { margin: 6px 0 10px 20px; }
+    ul li { margin-bottom: 6px; font-size: 14px; color: #444; line-height: 1.5; }
+    ul li .fe-tag { color: #9d174d; font-weight: 600; }
+    ul li .be-tag { color: #1d4ed8; font-weight: 600; }
+
+    code { background: #f0f0f0; padding: 1px 5px; border-radius: 3px; font-family: 'SF Mono', Consolas, monospace; font-size: 12px; color: #c7254e; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+    th { background: #f0f0f0; text-align: left; padding: 8px 12px; font-weight: 600; color: #333; border: 1px solid #ddd; }
+    td { padding: 8px 12px; border: 1px solid #ddd; color: #444; vertical-align: top; }
+    tr:nth-child(even) td { background: #fafafa; }
+
+    .summary-table td:nth-child(2) { font-weight: 500; }
+    .tag-both { color: #5b21b6; font-weight: 600; }
+    .tag-be { color: #1d4ed8; font-weight: 600; }
+    .tag-fe { color: #9d174d; font-weight: 600; }
+    .blocked-nothing { color: #059669; font-weight: 600; }
+    .blocked-ozow { color: #d97706; font-weight: 600; }
+    .blocked-karabo { color: #dc2626; font-weight: 600; }
+
+    .footer { text-align: center; font-size: 12px; color: #aaa; margin-top: 40px; }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <h1>SecureX — Outstanding Items</h1>
+  <div class="meta">Last updated: 8 July 2026</div>
+  <p class="intro">This document lists everything that is still missing or incomplete before SecureX can go live. Items are grouped by who is blocking them.</p>
+
+  <div class="legend">
+    <span>🖥 <strong>Frontend</strong></span>
+    <span>⚙️ <strong>Backend</strong></span>
+    <span>🖥⚙️ <strong>Both</strong></span>
+  </div>
+
+  <!-- ── SECTION 1 ── -->
+  <h2>1. Unblocked — Can Be Built Now</h2>
+
+  <div class="card">
+    <h3>1.1 Seller Bank Details Collection <span class="label label-both">🖥⚙️ Both</span></h3>
+
+    <div class="section-label missing">What's missing</div>
+    <p>There is no way for a seller to submit their banking information. The <code>User</code> model already has <code>BankAccountNumber</code>, <code>BankBranchCode</code>, and <code>BankGroupId</code> fields in the database, but there is no API endpoint or UI form to collect these values.</p>
+
+    <div class="section-label matters">Why it matters</div>
+    <p>When a buyer accepts an item and the deal is marked <code>Completed</code>, the system automatically triggers a payout to the seller via Ozow. If the seller has no bank details on record, the payout is silently skipped with a warning log. No money reaches the seller.</p>
+
+    <div class="section-label build">What needs to be built</div>
+    <ul>
+      <li><span class="be-tag">⚙️ BE</span> — <code>POST /api/users/{id}/bank-details</code> endpoint for sellers to submit bank account number, branch code, and Ozow bank group ID</li>
+      <li><span class="be-tag">⚙️ BE</span> — <code>GET /getavailablebanks</code> proxy or cached list so the frontend can show a bank picker</li>
+      <li><span class="fe-tag">🖥 FE</span> — A form or screen where the seller fills in their banking details after the deal is created</li>
+      <li><span class="fe-tag">🖥 FE</span> — Bank dropdown populated from the Ozow banks list so the correct <code>BankGroupId</code> is submitted</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>1.2 Dispute Resolution Endpoint <span class="label label-be">⚙️ Backend</span></h3>
+
+    <div class="section-label missing">What's missing</div>
+    <p>The endpoint <code>POST /api/transactions/{id}/resolve-dispute</code> does not exist yet.</p>
+
+    <div class="section-label matters">Why it matters</div>
+    <p>When a buyer rejects an item within the 24-hour inspection window, the transaction moves to <code>RequiresRefund</code> status. Funds are held in the Ozow float and neither party receives anything. There is currently no way to resolve this — no admin can decide the outcome, and no refund or payout can be triggered.</p>
+
+    <div class="section-label build">What needs to be built</div>
+    <ul>
+      <li><span class="be-tag">⚙️ BE</span> — <code>POST /api/transactions/{id}/resolve-dispute</code> admin endpoint accepting <code>{ decision: "release-to-seller" | "refund-to-buyer" }</code></li>
+      <li><span class="be-tag">⚙️ BE</span> — If <code>release-to-seller</code>: call <code>OzowPayoutService.RequestPayoutAsync</code> with seller bank details</li>
+      <li><span class="be-tag">⚙️ BE</span> — If <code>refund-to-buyer</code>: trigger refund mechanism (depends on decision in Section 3.1)</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>1.3 Deploy C# API to Render <span class="label label-be">⚙️ Backend</span></h3>
+
+    <div class="section-label missing">What's missing</div>
+    <p>The live URL <code>https://securex-btit.onrender.com</code> is currently running the old Node.js webhook service, not the new C# ASP.NET Core 8 API.</p>
+
+    <div class="section-label matters">Why it matters</div>
+    <p>All new functionality — deal creation, state machine, KYC, payout triggering, audit logs — lives in the C# API. The frontend and Ozow webhooks point at the Render URL, but the C# API has never been deployed there.</p>
+
+    <div class="section-label build">What needs to be done</div>
+    <ul>
+      <li><span class="be-tag">⚙️ BE</span> — Add a <code>Dockerfile</code> or configure Render to build and run the C# project from <code>SecureX.Api/</code></li>
+      <li><span class="be-tag">⚙️ BE</span> — Set all environment variables on Render (database URL, Ozow keys, JWT secret, etc.)</li>
+      <li><span class="be-tag">⚙️ BE</span> — Verify the health endpoint <code>GET /health</code> returns 200 after deploy</li>
+      <li><span class="be-tag">⚙️ BE</span> — Decommission the old Node.js service once confirmed working</li>
+    </ul>
+  </div>
+
+  <hr />
+
+  <!-- ── SECTION 2 ── -->
+  <h2>2. Blocked on Ozow</h2>
+
+  <div class="card">
+    <h3>2.1 Payout API Activation <span class="label label-be">⚙️ Backend</span></h3>
+
+    <div class="section-label missing">What's missing</div>
+    <p>The Ozow Payouts API (<code>stagingpayoutsapi.ozow.com</code>) is returning <code>403 Missing Authentication Token</code> for all requests. The merchant account <code>SECUREXPTYLTD</code> (site code <code>SEC-SEC-014</code>) has not been activated for payout access on the staging environment.</p>
+
+    <div class="section-label matters">Why it matters</div>
+    <p>Until this is resolved, no staging payout tests can be run and the end-to-end payout flow cannot be verified.</p>
+
+    <div class="section-label build">What needs to happen</div>
+    <ul>
+      <li><span class="be-tag">⚙️ BE</span> — Ozow support must manually activate payout access and provide a Payout API Key — email sent to support@ozow.com, awaiting response</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>2.2 Ozow Staging Test Cases <span class="label label-be">⚙️ Backend</span></h3>
+
+    <div class="section-label missing">What's missing</div>
+    <p>Ozow requires merchants to complete mandatory staging test scenarios before granting production access. These cover: successful payout flow, verification webhook returning <code>isVerified: false</code>, account number decryption failure, and payout cancellation.</p>
+
+    <div class="section-label matters">Why it matters</div>
+    <p>Without passing these tests, Ozow will not grant production payout access. No live payouts can happen.</p>
+
+    <div class="section-label build">What needs to happen</div>
+    <ul>
+      <li><span class="be-tag">⚙️ BE</span> — Once payout API access is activated (2.1 above), run and pass all required Ozow staging test scenarios</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>2.3 Ozow Float API for Reconciliation <span class="label label-be">⚙️ Backend</span></h3>
+
+    <div class="section-label missing">What's missing</div>
+    <p>The daily reconciliation service runs at 02:00 SAST and compares the expected float (sum of all <code>FundsSecured</code> transactions) against the actual Ozow float balance. The Ozow float fetch is currently stubbed and always returns <code>0</code>.</p>
+
+    <div class="section-label matters">Why it matters</div>
+    <p>Without the real float balance, the reconciliation service cannot detect discrepancies between what SecureX expects to hold and what Ozow actually holds.</p>
+
+    <div class="section-label build">What needs to happen</div>
+    <ul>
+      <li><span class="be-tag">⚙️ BE</span> — Ozow (Teyla) to provide the float balance API endpoint</li>
+      <li><span class="be-tag">⚙️ BE</span> — Replace the stubbed <code>return 0</code> in <code>ReconciliationService</code> with a real API call</li>
+    </ul>
+  </div>
+
+  <hr />
+
+  <!-- ── SECTION 3 ── -->
+  <h2>3. Blocked on Business Decisions (Karabo)</h2>
+
+  <div class="card">
+    <h3>3.1 Refund Flow — How Does the Buyer Get Their Money Back? <span class="label label-both">🖥⚙️ Both</span></h3>
+
+    <div class="section-label missing">What's missing</div>
+    <p>When a dispute is resolved in the buyer's favour, the funds are sitting in the Ozow float. There is no implemented mechanism to return those funds to the buyer.</p>
+
+    <div class="section-label matters">Why it matters</div>
+    <p>Without a refund mechanism, buyers who reject an item are left with no recourse. Funds are stuck in the float indefinitely.</p>
+
+    <div class="section-label decision">Decision needed from Karabo</div>
+    <ul>
+      <li>Does Ozow support a direct refund from the float back to the buyer's original payment method? If yes, what is the API call?</li>
+      <li>Or does SecureX manually EFT the buyer from the business account?</li>
+    </ul>
+
+    <div class="section-label once">Once decided</div>
+    <ul>
+      <li><span class="be-tag">⚙️ BE</span> — Implement the refund call in the dispute resolution endpoint</li>
+      <li><span class="fe-tag">🖥 FE</span> — Show the buyer a refund confirmation screen with expected timeline</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>3.2 Payout Routing — Seller Account or SecureX Business Account? <span class="label label-be">⚙️ Backend</span></h3>
+
+    <div class="section-label missing">What's missing</div>
+    <p>When a deal completes, the payout currently goes directly to the seller's personal bank account. It is unclear whether this is the intended flow or whether funds should first land in the SecureX business account.</p>
+
+    <div class="section-label matters">Why it matters</div>
+    <p>This determines what bank details are used in the Ozow payout request and whether SecureX acts as a pass-through or holds funds first.</p>
+
+    <div class="section-label decision">Decision needed from Karabo</div>
+    <ul>
+      <li>Does the payout go directly to the seller's bank account via Ozow?</li>
+      <li>Or does it go to the SecureX Capitec Business account (<code>1055374116</code>) first?</li>
+    </ul>
+
+    <div class="section-label once">Once decided</div>
+    <ul>
+      <li><span class="be-tag">⚙️ BE</span> — Update <code>TriggerPayoutAsync</code> to use the correct destination bank details</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>3.3 KYC Provider — ThisIsMe / SmileID <span class="label label-both">🖥⚙️ Both</span></h3>
+
+    <div class="section-label missing">What's missing</div>
+    <p>The KYC state machine is fully wired up. When <code>POST /api/transactions/{id}/start-buyer-kyc</code> is called, the transaction moves to <code>BuyerKycPending</code>. However, no actual KYC session is initiated — the system never calls SmileID or ThisIsMe.</p>
+
+    <div class="section-label matters">Why it matters</div>
+    <p>Without real KYC, there is no identity verification on buyers or sellers. This is a compliance and fraud risk.</p>
+
+    <div class="section-label build">What needs to happen</div>
+    <ul>
+      <li><span class="be-tag">⚙️ BE</span> — Karabo to provide ThisIsMe or SmileID API credentials and documentation</li>
+      <li><span class="be-tag">⚙️ BE</span> — Update <code>start-buyer-kyc</code> to call the KYC provider and return a session URL or SDK token</li>
+      <li><span class="be-tag">⚙️ BE</span> — Update <code>kyc-webhook</code> to handle the real provider's callback format</li>
+      <li><span class="fe-tag">🖥 FE</span> — Frontend to redirect the user to the KYC session URL or embed the SDK</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>3.4 Communications — Email and WhatsApp Notifications <span class="label label-be">⚙️ Backend</span></h3>
+
+    <div class="section-label missing">What's missing</div>
+    <p>There are no notifications of any kind. Buyers and sellers receive no emails or WhatsApp messages at any point in the deal lifecycle.</p>
+
+    <div class="section-label matters">Why it matters</div>
+    <p>Without notifications, users have no visibility into what is happening with their deal. This will result in support queries and loss of trust.</p>
+
+    <div class="section-label build">Notifications needed at minimum</div>
+    <table>
+      <thead><tr><th>Trigger</th><th>Recipient</th><th>Message</th></tr></thead>
+      <tbody>
+        <tr><td>Deal created</td><td>Buyer + Seller</td><td>Deal reference, item details, next steps</td></tr>
+        <tr><td>Payment received</td><td>Seller</td><td>Funds secured, item to be shipped</td></tr>
+        <tr><td>Item marked delivered</td><td>Buyer</td><td>24-hour inspection window started</td></tr>
+        <tr><td>Deal completed</td><td>Seller</td><td>Payout initiated</td></tr>
+        <tr><td>Dispute raised</td><td>Both</td><td>Dispute under review</td></tr>
+        <tr><td>Dispute resolved</td><td>Both</td><td>Outcome and next steps</td></tr>
+      </tbody>
+    </table>
+
+    <div class="section-label decision" style="margin-top:14px;">Decision needed from Karabo</div>
+    <p>Which provider to use — options include SendGrid (email), Twilio (WhatsApp/SMS), or a combined platform like Bird or Vonage.</p>
+
+    <div class="section-label once">Once decided</div>
+    <ul>
+      <li><span class="be-tag">⚙️ BE</span> — Wire provider SDK into the API</li>
+      <li><span class="be-tag">⚙️ BE</span> — Send notifications on each state transition</li>
+    </ul>
+  </div>
+
+  <hr />
+
+  <!-- ── SECTION 4 ── -->
+  <h2>4. Pre Go-Live (Do Last)</h2>
+
+  <table>
+    <thead><tr><th>Item</th><th>Layer</th><th>Detail</th></tr></thead>
+    <tbody>
+      <tr><td>Remove dev auth endpoint</td><td class="tag-be">⚙️ Backend</td><td><code>POST /api/auth/token</code> issues JWTs with no user verification — must be removed before go-live</td></tr>
+      <tr><td>Replace JWT secret</td><td class="tag-be">⚙️ Backend</td><td>Current <code>JWT_SECRET</code> is a weak dev placeholder — replace with a cryptographically random 64-character secret</td></tr>
+      <tr><td>Switch payout URL to production</td><td class="tag-be">⚙️ Backend</td><td>Change <code>OZOW_PAYOUT_BASE_URL</code> from staging to <code>https://payoutsapi.ozow.com/v1</code></td></tr>
+      <tr><td>Complete Ozow production certification</td><td class="tag-be">⚙️ Backend</td><td>Ozow requires a separate set of production test cases to be passed before live payouts are enabled</td></tr>
+    </tbody>
+  </table>
+
+  <hr />
+
+  <!-- ── SUMMARY ── -->
+  <h2>Summary</h2>
+
+  <table class="summary-table">
+    <thead><tr><th>#</th><th>Item</th><th>Layer</th><th>Blocked By</th></tr></thead>
+    <tbody>
+      <tr><td>1.1</td><td>Seller bank details UI + endpoint</td><td class="tag-both">🖥⚙️ Both</td><td class="blocked-nothing">Nothing — can build now</td></tr>
+      <tr><td>1.2</td><td>Dispute resolution endpoint</td><td class="tag-be">⚙️ Backend</td><td class="blocked-karabo">Karabo (refund method)</td></tr>
+      <tr><td>1.3</td><td>Deploy C# API to Render</td><td class="tag-be">⚙️ Backend</td><td class="blocked-nothing">Nothing — can do now</td></tr>
+      <tr><td>2.1</td><td>Ozow payout API activation</td><td class="tag-be">⚙️ Backend</td><td class="blocked-ozow">Ozow support</td></tr>
+      <tr><td>2.2</td><td>Ozow staging test cases</td><td class="tag-be">⚙️ Backend</td><td class="blocked-ozow">Ozow (2.1 first)</td></tr>
+      <tr><td>2.3</td><td>Ozow float API for reconciliation</td><td class="tag-be">⚙️ Backend</td><td class="blocked-ozow">Ozow (Teyla)</td></tr>
+      <tr><td>3.1</td><td>Refund flow design</td><td class="tag-both">🖥⚙️ Both</td><td class="blocked-karabo">Karabo</td></tr>
+      <tr><td>3.2</td><td>Payout routing decision</td><td class="tag-be">⚙️ Backend</td><td class="blocked-karabo">Karabo</td></tr>
+      <tr><td>3.3</td><td>KYC integration</td><td class="tag-both">🖥⚙️ Both</td><td class="blocked-karabo">Karabo (credentials)</td></tr>
+      <tr><td>3.4</td><td>Communications provider</td><td class="tag-be">⚙️ Backend</td><td class="blocked-karabo">Karabo (provider decision)</td></tr>
+      <tr><td>4.x</td><td>Pre go-live cleanup</td><td class="tag-be">⚙️ Backend</td><td>Do last</td></tr>
+    </tbody>
+  </table>
+
+  <div class="footer">SecureX Pty Ltd — Confidential</div>
+</div>
+</body>
+</html>
