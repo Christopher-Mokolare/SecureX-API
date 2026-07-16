@@ -1,14 +1,28 @@
-# Node
-node_modules/
-*.log
-
-# Env
-.env
-.env.local
-
-# .NET
-bin/
-obj/
+# ── .NET ─────────────────────────────────────────────────────────────────────
+SecureX.Api/bin/
+SecureX.Api/obj/
 *.user
 *.suo
 .vs/
+.vscode/
+
+# ── Environment ───────────────────────────────────────────────────────────────
+.env
+.env.local
+
+# ── Node.js (old webhook service — not part of C# backend) ───────────────────
+node_modules/
+package.json
+package-lock.json
+src/
+scripts/
+prisma/
+apprunner.yaml
+docker-compose.yml
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+*.log
+*.pages
+*.pdf
+Untitled.*
+MISSING.html
