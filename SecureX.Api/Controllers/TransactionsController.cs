@@ -10,7 +10,7 @@ namespace SecureX.Api.Controllers;
 [ApiController]
 [Route("api/transactions")]
 [Microsoft.AspNetCore.Authorization.Authorize]
-public class TransactionsController(TransactionService txService, AppDbContext db, SmileIdService smileId) : ControllerBase
+public class TransactionsController(TransactionService txService, AppDbContext db, SmileIdService smileId, OzowCollectionService collectionService, IConfiguration config) : ControllerBase
 {
     // Approved result codes from SmileID docs
     private static readonly HashSet<string> ApprovedCodes =
@@ -198,6 +198,33 @@ public class TransactionsController(TransactionService txService, AppDbContext d
             .OrderBy(a => a.Timestamp)
             .ToListAsync();
         return Ok(logs);
+    }
+
+    // ── POST /api/transactions/{id}/payment-link ────────────────────────────
+    [HttpPost("{id:guid}/payment-link")]
+    public async Task<IActionResult> PaymentLink(Guid id)
+    {
+        var tx = await db.Transactions
+            .Include(t => t.Buyer)
+            .FirstOrDefaultAsync(t => t.Id == id);
+        if (tx is null) return NotFound();
+
+        if (tx.Status != TransactionStatus.PaymentPending)
+            return BadRequest(new ErrorResponse { Error = $"Expected PaymentPending, got {tx.Status}" });
+
+        var albBase  = "http://securex-alb-1751040376.af-south-1.elb.amazonaws.com";
+        var notifyUrl = config["Ozow:CollectionNotifyUrl"] ?? $"{albBase}/securex/payment-notification";
+
+        var link = collectionService.GenerateCheckoutLink(
+            tx.DealReference,
+            tx.TotalCheckoutAmount,
+            tx.Buyer?.Email ?? "",
+            successUrl: $"{albBase}/payment-success",
+            cancelUrl:  $"{albBase}/payment-cancel",
+            errorUrl:   $"{albBase}/payment-error",
+            notifyUrl:  notifyUrl);
+
+        return Ok(new { dealReference = tx.DealReference, totalAmount = tx.TotalCheckoutAmount, checkoutUrl = link.Url, method = link.Method, fields = link.Fields });
     }
 
     // ── GET /api/transactions/fee-preview ────────────────────────────────────

@@ -23,6 +23,8 @@ cfg["Ozow:PrivateKey"]                 = cfg["OZOW_PRIVATE_KEY"] ?? cfg["Ozow:Pr
 cfg["Ozow:PayoutApiKey"]               = cfg["OZOW_PAYOUT_API_KEY"] ?? cfg["Ozow:PayoutApiKey"];
 cfg["Ozow:PayoutBaseUrl"]              = cfg["OZOW_PAYOUT_BASE_URL"] ?? cfg["Ozow:PayoutBaseUrl"];
 cfg["Ozow:NotifyUrl"]                  = cfg["OZOW_NOTIFY_URL"] ?? cfg["Ozow:NotifyUrl"];
+cfg["Ozow:CollectionNotifyUrl"]        = cfg["OZOW_COLLECTION_NOTIFY_URL"] ?? cfg["Ozow:CollectionNotifyUrl"];
+cfg["Ozow:IsTest"]                     = cfg["OZOW_IS_TEST"] ?? cfg["Ozow:IsTest"] ?? "false";
 cfg["SmileId:PartnerId"]               = cfg["SMILEID_PARTNER_ID"] ?? cfg["SmileId:PartnerId"];
 cfg["SmileId:ApiKey"]                  = cfg["SMILEID_API_KEY"] ?? cfg["SmileId:ApiKey"];
 cfg["SmileId:BaseUrl"]                 = cfg["SMILEID_BASE_URL"] ?? cfg["SmileId:BaseUrl"];
@@ -74,6 +76,7 @@ if (!builder.Environment.IsDevelopment())
 // ── Services ─────────────────────────────────────────────────────────────────
 builder.Services.AddScoped<HashService>();
 builder.Services.AddScoped<DealReferenceService>();
+builder.Services.AddScoped<OzowCollectionService>();
 builder.Services.AddScoped<OzowPayoutService>();
 builder.Services.AddScoped<SmileIdService>();
 builder.Services.AddScoped<ThisIsMeAvsService>();
