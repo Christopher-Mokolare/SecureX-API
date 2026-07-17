@@ -22,7 +22,8 @@ public class AuthController : ControllerBase
         if (string.IsNullOrWhiteSpace(req.Email))
             return BadRequest(new ErrorResponse { Error = "Email is required" });
 
-        var secret = Environment.GetEnvironmentVariable("JWT_SECRET")!;
+        var secret = Environment.GetEnvironmentVariable("JWT_SECRET")
+            ?? HttpContext.RequestServices.GetRequiredService<IConfiguration>()["JWT_SECRET"]!;
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
