@@ -56,6 +56,8 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
             siteCode          = SiteCode,
             amount            = new { currency = "ZAR", value = totalAmount },
             merchantReference = dealReference,
+            bankReference     = dealReference,
+            expireAt          = DateTime.UtcNow.AddHours(24).ToString("o"),
             returnUrl         = ReturnUrl,
         };
 
