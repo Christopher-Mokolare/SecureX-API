@@ -51,7 +51,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.TotalCheckoutAmount).HasColumnName("total_checkout_amount").HasColumnType("numeric(12,2)");
             e.Property(x => x.ServiceType).HasColumnName("service_type").HasConversion<string>();
             e.Property(x => x.Status).HasColumnName("status").HasConversion<string>();
-            e.Property(x => x.Version).HasColumnName("version").IsConcurrencyToken();
+            e.Property(x => x.Version).HasColumnName("version");
             e.Property(x => x.InspectionWindowEndsAt).HasColumnName("inspection_window_ends_at");
             e.Property(x => x.CreatedAt).HasColumnName("created_at");
             e.Property(x => x.UpdatedAt).HasColumnName("updated_at");

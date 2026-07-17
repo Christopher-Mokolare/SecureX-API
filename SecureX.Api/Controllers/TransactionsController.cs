@@ -60,12 +60,18 @@ public class TransactionsController(TransactionService txService, AppDbContext d
     [HttpPost("{id:guid}/start-buyer-kyc")]
     public async Task<IActionResult> StartBuyerKyc(Guid id, [FromBody] AdvanceStateRequest req)
     {
-        var tx = await txService.AdvanceStateAsync(id,
-            TransactionStatus.Initialized, TransactionStatus.BuyerKycPending,
-            req.Actor, req.Details ?? "Buyer KYC started", req.ExpectedVersion);
+        try
+        {
+            var tx = await txService.AdvanceStateAsync(id,
+                TransactionStatus.Initialized, TransactionStatus.BuyerKycPending,
+                req.Actor, req.Details ?? "Buyer KYC started", req.ExpectedVersion);
 
-        var token = await smileId.GetWebTokenAsync(tx.BuyerId, "");
-        return Ok(new { transaction = Map(tx), smileToken = token });
+            var token = await smileId.GetWebTokenAsync(tx.BuyerId, "");
+            return Ok(new { transaction = Map(tx), smileToken = token });
+        }
+        catch (DbUpdateConcurrencyException) { return Conflict(new ErrorResponse { Error = "Transaction was modified concurrently. Refresh and retry." }); }
+        catch (KeyNotFoundException) { return NotFound(); }
+        catch (InvalidOperationException ex) { return BadRequest(new ErrorResponse { Error = ex.Message }); }
     }
 
     // ── POST /api/transactions/kyc-webhook — SmileID posts here ─────────────
@@ -106,18 +112,30 @@ public class TransactionsController(TransactionService txService, AppDbContext d
     [HttpPost("{id:guid}/mark-delivered")]
     public async Task<IActionResult> MarkDelivered(Guid id, [FromBody] AdvanceStateRequest req)
     {
-        var tx = await txService.AdvanceStateAsync(id,
-            TransactionStatus.LogisticsPending, TransactionStatus.ItemDelivered,
-            req.Actor, "Item marked as delivered — 24hr inspection window started", req.ExpectedVersion);
-        return Ok(Map(tx));
+        try
+        {
+            var tx = await txService.AdvanceStateAsync(id,
+                TransactionStatus.LogisticsPending, TransactionStatus.ItemDelivered,
+                req.Actor, "Item marked as delivered — 24hr inspection window started", req.ExpectedVersion);
+            return Ok(Map(tx));
+        }
+        catch (DbUpdateConcurrencyException) { return Conflict(new ErrorResponse { Error = "Transaction was modified concurrently. Refresh and retry." }); }
+        catch (KeyNotFoundException) { return NotFound(); }
+        catch (InvalidOperationException ex) { return BadRequest(new ErrorResponse { Error = ex.Message }); }
     }
 
     // ── POST /api/transactions/{id}/accept — buyer accepts item ─────────────
     [HttpPost("{id:guid}/accept")]
     public async Task<IActionResult> Accept(Guid id, [FromBody] AdvanceStateRequest req)
     {
-        var tx = await txService.CompleteAsync(id, req.Actor, req.ExpectedVersion);
-        return Ok(Map(tx));
+        try
+        {
+            var tx = await txService.CompleteAsync(id, req.Actor, req.ExpectedVersion);
+            return Ok(Map(tx));
+        }
+        catch (DbUpdateConcurrencyException) { return Conflict(new ErrorResponse { Error = "Transaction was modified concurrently. Refresh and retry." }); }
+        catch (KeyNotFoundException) { return NotFound(); }
+        catch (InvalidOperationException ex) { return BadRequest(new ErrorResponse { Error = ex.Message }); }
     }
 
     // ── POST /api/transactions/{id}/reject — buyer rejects within 24hrs ─────

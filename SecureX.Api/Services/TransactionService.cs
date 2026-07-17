@@ -78,14 +78,10 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
     public async Task<Transaction> AdvanceStateAsync(Guid txId, TransactionStatus expected,
         TransactionStatus next, string actor, string details, int expectedVersion)
     {
-        await using var dbTx = await db.Database.BeginTransactionAsync();
-
         var tx = await db.Transactions
-            .FromSqlRaw("SELECT * FROM transactions WHERE id = {0} FOR UPDATE", txId)
-            .Include(t => t.AuditLogs)
             .Include(t => t.Buyer)
             .Include(t => t.Seller)
-            .FirstOrDefaultAsync()
+            .FirstOrDefaultAsync(t => t.Id == txId)
             ?? throw new KeyNotFoundException($"Transaction {txId} not found");
 
         if (tx.Status != expected)
@@ -96,16 +92,25 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
 
         var prev = tx.Status;
         tx.Status = next;
-        tx.Version++;
         tx.UpdatedAt = DateTime.UtcNow;
 
-        // Set 24hr inspection window when item is marked delivered
         if (next == TransactionStatus.ItemDelivered)
             tx.InspectionWindowEndsAt = DateTime.UtcNow.AddHours(24);
 
-        AppendAudit(tx, prev, next, actor, details);
+        // Add directly to DbSet — never via navigation property to avoid EF tracking existing audit logs as Modified
+        db.AuditLogs.Add(new AuditLog
+        {
+            TransactionId = txId,
+            PreviousStatus = prev,
+            NewStatus = next,
+            TriggerActor = actor,
+            ActionDetails = details,
+        });
+
         await db.SaveChangesAsync();
-        await dbTx.CommitAsync();
+        await db.Database.ExecuteSqlRawAsync(
+            "UPDATE transactions SET version = version + 1 WHERE \"Id\" = {0}", txId);
+        tx.Version++;
         return tx;
     }
 

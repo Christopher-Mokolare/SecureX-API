@@ -235,7 +235,6 @@ namespace SecureX.Api.Migrations
                         .HasColumnName("updated_at");
 
                     b.Property<int>("Version")
-                        .IsConcurrencyToken()
                         .HasColumnType("integer")
                         .HasColumnName("version");
 
