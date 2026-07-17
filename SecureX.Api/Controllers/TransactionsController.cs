@@ -10,7 +10,7 @@ namespace SecureX.Api.Controllers;
 [ApiController]
 [Route("api/transactions")]
 [Microsoft.AspNetCore.Authorization.Authorize]
-public class TransactionsController(TransactionService txService, AppDbContext db, SmileIdService smileId, OzowCollectionService collectionService, IConfiguration config) : ControllerBase
+public class TransactionsController(TransactionService txService, AppDbContext db, SmileIdService smileId, OzowCollectionService collectionService) : ControllerBase
 {
     // Approved result codes from SmileID docs
     private static readonly HashSet<string> ApprovedCodes =
@@ -204,27 +204,17 @@ public class TransactionsController(TransactionService txService, AppDbContext d
     [HttpPost("{id:guid}/payment-link")]
     public async Task<IActionResult> PaymentLink(Guid id)
     {
-        var tx = await db.Transactions
-            .Include(t => t.Buyer)
-            .FirstOrDefaultAsync(t => t.Id == id);
+        var tx = await db.Transactions.FindAsync(id);
         if (tx is null) return NotFound();
 
         if (tx.Status != TransactionStatus.PaymentPending)
             return BadRequest(new ErrorResponse { Error = $"Expected PaymentPending, got {tx.Status}" });
 
-        var albBase  = "http://securex-alb-1751040376.af-south-1.elb.amazonaws.com";
-        var notifyUrl = config["Ozow:CollectionNotifyUrl"] ?? $"{albBase}/securex/payment-notification";
+        var redirectUrl = await collectionService.CreatePaymentAsync(tx.DealReference, tx.TotalCheckoutAmount);
+        if (redirectUrl is null)
+            return StatusCode(502, new ErrorResponse { Error = "Failed to create Ozow payment" });
 
-        var link = collectionService.GenerateCheckoutLink(
-            tx.DealReference,
-            tx.TotalCheckoutAmount,
-            tx.Buyer?.Email ?? "",
-            successUrl: $"{albBase}/payment-success",
-            cancelUrl:  $"{albBase}/payment-cancel",
-            errorUrl:   $"{albBase}/payment-error",
-            notifyUrl:  notifyUrl);
-
-        return Ok(new { dealReference = tx.DealReference, totalAmount = tx.TotalCheckoutAmount, checkoutUrl = link.Url, method = link.Method, fields = link.Fields });
+        return Ok(new { dealReference = tx.DealReference, totalAmount = tx.TotalCheckoutAmount, redirectUrl });
     }
 
     // ── GET /api/transactions/fee-preview ────────────────────────────────────

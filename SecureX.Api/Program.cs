@@ -25,6 +25,10 @@ cfg["Ozow:PayoutBaseUrl"]              = cfg["OZOW_PAYOUT_BASE_URL"] ?? cfg["Ozo
 cfg["Ozow:NotifyUrl"]                  = cfg["OZOW_NOTIFY_URL"] ?? cfg["Ozow:NotifyUrl"];
 cfg["Ozow:CollectionNotifyUrl"]        = cfg["OZOW_COLLECTION_NOTIFY_URL"] ?? cfg["Ozow:CollectionNotifyUrl"];
 cfg["Ozow:IsTest"]                     = cfg["OZOW_IS_TEST"] ?? cfg["Ozow:IsTest"] ?? "false";
+cfg["Ozow:OneApiClientId"]             = cfg["OZOW_ONE_API_CLIENT_ID"] ?? cfg["Ozow:OneApiClientId"];
+cfg["Ozow:OneApiClientSecret"]         = cfg["OZOW_ONE_API_CLIENT_SECRET"] ?? cfg["Ozow:OneApiClientSecret"];
+cfg["Ozow:OneApiBaseUrl"]              = cfg["OZOW_ONE_API_BASE_URL"] ?? cfg["Ozow:OneApiBaseUrl"];
+cfg["Ozow:ReturnUrl"]                  = cfg["OZOW_RETURN_URL"] ?? cfg["Ozow:ReturnUrl"];
 cfg["SmileId:PartnerId"]               = cfg["SMILEID_PARTNER_ID"] ?? cfg["SmileId:PartnerId"];
 cfg["SmileId:ApiKey"]                  = cfg["SMILEID_API_KEY"] ?? cfg["SmileId:ApiKey"];
 cfg["SmileId:BaseUrl"]                 = cfg["SMILEID_BASE_URL"] ?? cfg["SmileId:BaseUrl"];
@@ -83,6 +87,7 @@ builder.Services.AddScoped<ThisIsMeAvsService>();
 builder.Services.AddScoped<TransactionService>();
 builder.Services.AddHostedService<ReconciliationService>();
 builder.Services.AddHttpClient("OzowPayout");
+builder.Services.AddHttpClient("OzowOneApi");
 builder.Services.AddHttpClient("SmileId");
 builder.Services.AddHttpClient("ThisIsMe");
 
