@@ -249,7 +249,8 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
         var bankGroupId = seller.BankGroupId;
 
         // Verify seller bank account via ThisIsMe AVS before releasing funds
-        var bankVerified = await avsService.VerifyBankAccountAsync(
+        var skipAvs = config["SKIP_AVS_FOR_STAGING"] == "true";
+        var bankVerified = skipAvs || await avsService.VerifyBankAccountAsync(
             seller.IdNumber, seller.BankAccountNumber, seller.BankBranchCode);
 
         if (!bankVerified)
