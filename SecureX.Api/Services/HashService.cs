@@ -42,18 +42,14 @@ public class HashService
 
     public static (int status, int subStatus) ReadStatus(PayoutNotificationRequest req)
     {
-        if (req.PayoutStatus is JsonElement el && el.ValueKind == JsonValueKind.Object)
+        int s = 0;
+        if (req.PayoutStatus is JsonElement el)
         {
-            return (
-                el.GetProperty("status").GetInt32(),
-                el.GetProperty("subStatus").GetInt32()
-            );
+            if (el.ValueKind == JsonValueKind.Number) s = el.GetInt32();
+            else if (el.ValueKind == JsonValueKind.Object)
+                s = el.TryGetProperty("status", out var sp) ? sp.GetInt32() : 0;
+            // string like "Complete" — leave as 0, hash will fail and be rejected
         }
-
-        var s = req.PayoutStatus is JsonElement flat && flat.ValueKind == JsonValueKind.Number
-            ? flat.GetInt32()
-            : Convert.ToInt32(req.PayoutStatus ?? 0);
-
         var ss = req.PayoutSubStatus ?? req.SubStatus ?? 0;
         return (s, ss);
     }
