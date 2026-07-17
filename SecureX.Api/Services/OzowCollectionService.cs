@@ -35,7 +35,7 @@ public class OzowCollectionService(IConfiguration config, ILogger<OzowCollection
         var raw = string.Concat(
             siteCode, "ZA", "ZAR", amountStr, dealReference,
             dealReference, optional1, "", "", "", "",
-            isTest, notifyUrl, successUrl, cancelUrl, errorUrl, apiKey);
+            isTest, notifyUrl, successUrl, cancelUrl, errorUrl, privateKey);
 
         var hash = Convert.ToHexString(
             SHA512.HashData(Encoding.UTF8.GetBytes(raw.ToLowerInvariant())))
