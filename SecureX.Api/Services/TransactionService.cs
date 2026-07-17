@@ -114,16 +114,32 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
         return tx;
     }
 
-    // ── Step 6: Ozow payment webhook → FUNDS_SECURED ────────────────────────
+    // ── Ozow payout-notification: PayoutComplete (status=5) → log only ──────
+    // The payout-notification webhook is for SELLER payout outcomes, not buyer payment.
+    // Buyer payment received is handled separately via the collection webhook.
 
-    public async Task<bool> HandlePaymentWebhookAsync(string merchantReference, string payoutId)
+    public async Task<bool> HandlePayoutCompleteAsync(string merchantReference, string payoutId)
+    {
+        var tx = await db.Transactions.FirstOrDefaultAsync(
+            t => t.DealReference == merchantReference);
+        if (tx is null) return false;
+
+        logger.LogInformation("Ozow payout complete. Ref={Ref} PayoutId={PayoutId} Status={Status}",
+            merchantReference, payoutId, tx.Status);
+        return true;
+    }
+
+    // ── Buyer payment received → FundsSecured ────────────────────────────────
+    // Called by the Ozow collection payment webhook (separate from payout-notification)
+
+    public async Task<bool> HandlePaymentReceivedAsync(string merchantReference)
     {
         var tx = await db.Transactions.FirstOrDefaultAsync(
             t => t.DealReference == merchantReference && t.Status == TransactionStatus.PaymentPending);
         if (tx is null) return false;
 
         await AdvanceStateAsync(tx.Id, TransactionStatus.PaymentPending,
-            TransactionStatus.FundsSecured, "ozow-webhook", $"Ozow payoutId={payoutId}", tx.Version);
+            TransactionStatus.FundsSecured, "ozow-collection", "Buyer payment received", tx.Version);
         return true;
     }
 
@@ -225,7 +241,7 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
             return;
         }
 
-        var notifyUrl  = config["Ozow:NotifyUrl"] ?? "https://securex-btit.onrender.com/securex/payout-notification";
+        var notifyUrl  = config["Ozow:NotifyUrl"]!;
         var encKey     = config["Ozow:AccountNumberDecryptionKey"]!;
         var payoutAmount = tx.ItemValue - tx.SellerFee;
 

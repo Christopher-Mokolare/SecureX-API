@@ -30,11 +30,11 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
         var baseUrl     = config["Ozow:PayoutBaseUrl"] ?? "https://stagingpayoutsapi.ozow.com/v1";
 
         var amountCents = (long)Math.Round(amountZar * 100);
-        var encryptedAccount = EncryptAccountNumber(plainAccountNumber, amountCents, encryptionKey);
+        var encryptedAccount = EncryptAccountNumber(plainAccountNumber, merchantReference, amountCents, encryptionKey);
         var customerRef = SanitiseBankRef(merchantReference);
 
         var hash = BuildHash(siteCode, amountZar, merchantReference, customerRef,
-            false, notifyUrl, bankGroupId, encryptedAccount, branchCode, privateKey);
+            false, notifyUrl, bankGroupId, encryptedAccount, branchCode, apiKey);
 
         var body = new
         {
@@ -72,14 +72,19 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
     }
 
     // ── AES-256-CBC account number encryption ────────────────────────────────
-    // IV = first 16 bytes of SHA512(merchantReference + amountCents + encryptionKey)
+    // IV = first 16 chars of SHA512(merchantReference + amountCents + encryptionKey) as UTF8 bytes
+    // Key = first 32 chars of encryptionKey (padded if shorter) as UTF8 bytes
+    // Output = Base64
 
-    private static string EncryptAccountNumber(string accountNumber, long amountCents, string encryptionKey)
+    private static string EncryptAccountNumber(string accountNumber, string merchantReference, long amountCents, string encryptionKey)
     {
-        var ivInput = $"{encryptionKey}{amountCents}{encryptionKey}";
-        var ivHash  = SHA512.HashData(Encoding.UTF8.GetBytes(ivInput));
-        var iv      = ivHash[..16];
-        var key     = SHA256.HashData(Encoding.UTF8.GetBytes(encryptionKey)); // 32-byte key
+        var ivInput = $"{merchantReference}{amountCents}{encryptionKey}";
+        var ivHex   = Convert.ToHexString(SHA512.HashData(Encoding.UTF8.GetBytes(ivInput.ToLowerInvariant()))).ToLowerInvariant();
+        var iv      = Encoding.UTF8.GetBytes(ivHex[..16]);
+
+        var paddedKey = encryptionKey;
+        while (paddedKey.Length < 32) paddedKey += paddedKey;
+        var key = Encoding.UTF8.GetBytes(paddedKey[..32]);
 
         using var aes = Aes.Create();
         aes.KeySize = 256;
@@ -91,7 +96,7 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
         using var enc = aes.CreateEncryptor();
         var plain  = Encoding.UTF8.GetBytes(accountNumber);
         var cipher = enc.TransformFinalBlock(plain, 0, plain.Length);
-        return Convert.ToHexString(cipher).ToLowerInvariant();
+        return Convert.ToBase64String(cipher);
     }
 
     // ── SHA-512 hash per Ozow docs ───────────────────────────────────────────

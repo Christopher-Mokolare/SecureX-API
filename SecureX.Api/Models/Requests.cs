@@ -1,5 +1,18 @@
 namespace SecureX.Api.Models;
 
+// ── Ozow collection payment notification (form POST from Ozow) ──────────────
+
+public class OzowPaymentNotification
+{
+    public string SiteCode { get; set; } = "";
+    public string TransactionReference { get; set; } = "";
+    public string BankReference { get; set; } = "";
+    public string? Optional1 { get; set; }
+    public string Amount { get; set; } = "";
+    public string Status { get; set; } = "";
+    public string HashCheck { get; set; } = "";
+}
+
 // ── Ozow verify webhook ──────────────────────────────────────────────────────
 
 public class BankingDetails

@@ -63,8 +63,9 @@ public class OzowNotificationController(HashService hash, AppDbContext db,
         });
         await db.SaveChangesAsync();
 
-        if (!duplicate && !string.IsNullOrEmpty(req.MerchantReference))
-            await txService.HandlePaymentWebhookAsync(req.MerchantReference, req.PayoutId);
+        // Only advance to Completed when Ozow confirms PayoutComplete (status 5)
+        if (!duplicate && status == 5 && !string.IsNullOrEmpty(req.MerchantReference))
+            await txService.HandlePayoutCompleteAsync(req.MerchantReference, req.PayoutId);
 
         return Ok(new PayoutNotificationResponse
         {

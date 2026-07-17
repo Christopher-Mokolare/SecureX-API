@@ -26,3 +26,9 @@ docker-compose.yml
 *.pdf
 Untitled.*
 MISSING.html
+
+# ── Internal planning docs ────────────────────────────────────────────────────
+STATUS.md
+SCOPE.md
+TODO.md
+MISSING.md

@@ -108,6 +108,24 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         return Ok(new { status = approved ? "approved" : "rejected", resultCode = req.ResultCode });
     }
 
+    // ── POST /api/transactions/{id}/start-seller-kyc ─────────────────────────
+    [HttpPost("{id:guid}/start-seller-kyc")]
+    public async Task<IActionResult> StartSellerKyc(Guid id, [FromBody] AdvanceStateRequest req)
+    {
+        try
+        {
+            var tx = await txService.AdvanceStateAsync(id,
+                TransactionStatus.FundsSecured, TransactionStatus.SellerKycPending,
+                req.Actor, req.Details ?? "Seller KYC started", req.ExpectedVersion);
+
+            var token = await smileId.GetWebTokenAsync(tx.SellerId, "");
+            return Ok(new { transaction = Map(tx), smileToken = token });
+        }
+        catch (DbUpdateConcurrencyException) { return Conflict(new ErrorResponse { Error = "Transaction was modified concurrently. Refresh and retry." }); }
+        catch (KeyNotFoundException) { return NotFound(); }
+        catch (InvalidOperationException ex) { return BadRequest(new ErrorResponse { Error = ex.Message }); }
+    }
+
     // ── POST /api/transactions/{id}/mark-delivered ───────────────────────────
     [HttpPost("{id:guid}/mark-delivered")]
     public async Task<IActionResult> MarkDelivered(Guid id, [FromBody] AdvanceStateRequest req)
