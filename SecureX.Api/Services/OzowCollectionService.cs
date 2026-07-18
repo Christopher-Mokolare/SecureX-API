@@ -1,105 +1,81 @@
-using System.Security.Cryptography;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 
 namespace SecureX.Api.Services;
 
 /// <summary>
-/// Ozow standard payment request API.
-/// Docs: https://hub.ozow.com/docs/payment-request
-/// POST https://stagingapi.ozow.com/PostPaymentRequest
+/// Ozow One API — OAuth 2.0 client credentials flow + REST payment creation.
+/// Docs: https://hub.ozow.com/docs/one-api/quickstart-payments
 /// </summary>
 public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguration config, ILogger<OzowCollectionService> logger)
 {
-    private string BaseUrl     => config["Ozow:CollectionBaseUrl"] ?? "https://stagingapi.ozow.com";
-    private string SiteCode    => config["Ozow:SiteCode"]!;
-    private string PrivateKey  => config["Ozow:PrivateKey"]!;
-    private string ApiKey      => config["Ozow:ApiKey"]!;
-    private string NotifyUrl   => config["Ozow:CollectionNotifyUrl"]!;
-    private string ReturnUrl   => config["Ozow:ReturnUrl"] ?? "http://securex-alb-1751040376.af-south-1.elb.amazonaws.com/payment-return";
+    private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+    private string BaseUrl      => config["Ozow:OneApiBaseUrl"] ?? "https://stagingone.ozow.com";
+    private string ClientId     => config["Ozow:OneApiClientId"]!;
+    private string ClientSecret => config["Ozow:OneApiClientSecret"]!;
+    private string SiteCode     => config["Ozow:SiteCode"]!;
+    private string ReturnUrl    => config["Ozow:ReturnUrl"] ?? "http://securex-alb-1751040376.af-south-1.elb.amazonaws.com/payment-return";
+
+    private async Task<string?> GetAccessTokenAsync()
+    {
+        var client = httpFactory.CreateClient("OzowOneApi");
+        var body = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["client_id"]     = ClientId,
+            ["client_secret"] = ClientSecret,
+            ["scope"]         = "payments",
+            ["grant_type"]    = "client_credentials",
+        });
+
+        var res = await client.PostAsync($"{BaseUrl}/v1/token", body);
+        var raw = await res.Content.ReadAsStringAsync();
+
+        if (!res.IsSuccessStatusCode)
+        {
+            logger.LogError("Ozow token failed {Status}: {Body}", res.StatusCode, raw);
+            return null;
+        }
+
+        return JsonDocument.Parse(raw).RootElement.GetProperty("access_token").GetString();
+    }
 
     public async Task<string?> CreatePaymentAsync(string dealReference, decimal totalAmount)
     {
-        var countryCode  = "ZA";
-        var currencyCode = "ZAR";
-        var amount       = totalAmount.ToString("F2");
-        var bankRef      = SanitiseRef(dealReference);
-        var optional1    = "";
-        var optional2    = "";
-        var optional3    = "";
-        var isTest       = "true";
-        var cancelUrl    = ReturnUrl;
-        var errorUrl     = ReturnUrl;
-
-        var hash = BuildHash(SiteCode, countryCode, currencyCode, amount,
-            bankRef, optional1, optional2, optional3,
-            cancelUrl, errorUrl, NotifyUrl, ReturnUrl, isTest, PrivateKey);
+        var token = await GetAccessTokenAsync();
+        if (token is null) return null;
 
         var body = new
         {
-            SiteCode    = SiteCode,
-            CountryCode = countryCode,
-            CurrencyCode = currencyCode,
-            Amount      = amount,
-            TransactionReference = dealReference,
-            BankReference = bankRef,
-            Optional1   = optional1,
-            Optional2   = optional2,
-            Optional3   = optional3,
-            CancelUrl   = cancelUrl,
-            ErrorUrl    = errorUrl,
-            SuccessUrl  = ReturnUrl,
-            NotifyUrl   = NotifyUrl,
-            IsTest      = isTest,
-            HashCheck   = hash,
+            siteCode          = SiteCode,
+            amount            = new { currency = "ZAR", value = totalAmount },
+            merchantReference = dealReference,
+            bankReference     = dealReference,
+            expireAt          = DateTime.UtcNow.AddHours(24).ToString("o"),
+            returnUrl         = ReturnUrl,
         };
 
-        var client = httpFactory.CreateClient("OzowCollection");
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/PostPaymentRequest")
+        var client = httpFactory.CreateClient("OzowOneApi");
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/v1/payments")
         {
-            Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"),
+            Content = new StringContent(JsonSerializer.Serialize(body, JsonOpts), Encoding.UTF8, "application/json"),
         };
-        req.Headers.Add("ApiKey", ApiKey);
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Headers.Add("Idempotency-Key", dealReference);
+        req.Headers.Add("X-Correlation-ID", dealReference);
 
         var res = await client.SendAsync(req);
         var raw = await res.Content.ReadAsStringAsync();
 
         if (!res.IsSuccessStatusCode)
         {
-            logger.LogError("Ozow PostPaymentRequest failed {Status}: {Body}", res.StatusCode, raw);
+            logger.LogError("Ozow create payment failed {Status}: {Body}", res.StatusCode, raw);
             return null;
         }
 
-        var doc = JsonDocument.Parse(raw);
-        if (!doc.RootElement.TryGetProperty("url", out var urlProp))
-        {
-            logger.LogError("Ozow PostPaymentRequest response missing 'url': {Body}", raw);
-            return null;
-        }
-
-        var url = urlProp.GetString();
-        logger.LogInformation("Ozow payment created. Ref={Ref} Url={Url}", dealReference, url);
-        return url;
+        var redirectUrl = JsonDocument.Parse(raw).RootElement.GetProperty("redirectUrl").GetString();
+        logger.LogInformation("Ozow payment created. Ref={Ref} RedirectUrl={Url}", dealReference, redirectUrl);
+        return redirectUrl;
     }
-
-    // SHA-512 hash per Ozow docs:
-    // siteCode + countryCode + currencyCode + amount + transactionRef + bankRef +
-    // optional1 + optional2 + optional3 + cancelUrl + errorUrl + successUrl + notifyUrl + isTest + privateKey
-    private static string BuildHash(
-        string siteCode, string countryCode, string currencyCode, string amount,
-        string bankRef, string opt1, string opt2, string opt3,
-        string cancelUrl, string errorUrl, string notifyUrl, string successUrl,
-        string isTest, string privateKey)
-    {
-        var input = string.Concat(
-            siteCode, countryCode, currencyCode, amount,
-            bankRef, opt1, opt2, opt3,
-            cancelUrl, errorUrl, successUrl, notifyUrl, isTest, privateKey);
-
-        var hash = SHA512.HashData(Encoding.UTF8.GetBytes(input.ToLowerInvariant()));
-        return Convert.ToHexString(hash).ToLowerInvariant();
-    }
-
-    private static string SanitiseRef(string input) =>
-        new string(input.Where(c => char.IsLetterOrDigit(c) || c == '-').ToArray())[..Math.Min(input.Length, 20)];
 }

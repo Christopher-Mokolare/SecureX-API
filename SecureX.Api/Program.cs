@@ -79,7 +79,7 @@ builder.Services.AddScoped<OzowPayoutService>();
 builder.Services.AddScoped<TransactionService>();
 builder.Services.AddHostedService<ReconciliationService>();
 builder.Services.AddHttpClient("OzowPayout");
-builder.Services.AddHttpClient("OzowCollection");
+builder.Services.AddHttpClient("OzowOneApi");
 
 builder.Services.AddControllers()
     .AddJsonOptions(o =>

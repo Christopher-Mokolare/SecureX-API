@@ -14,19 +14,19 @@ public class OzowPaymentController(
     [HttpPost("/securex/payment-notification")]
     public async Task<IActionResult> PaymentNotification([FromBody] JsonElement body)
     {
-        var siteCode   = body.TryGetProperty("SiteCode", out var sc) ? sc.GetString() : null;
-        var txRef      = body.TryGetProperty("TransactionReference", out var tr) ? tr.GetString() : null;
-        var smartRef   = body.TryGetProperty("SmartReference", out var sr) ? sr.GetString() ?? "" : "";
-        var status     = body.TryGetProperty("Status", out var s) ? s.GetString() : null;
-        var hashCheck  = body.TryGetProperty("Hash", out var h) ? h.GetString() : null;
+        var siteCode   = body.TryGetProperty("siteCode", out var sc) ? sc.GetString() : null;
+        var txRef      = body.TryGetProperty("merchantReference", out var tr) ? tr.GetString() : null;
+        var smartRef   = body.TryGetProperty("smartReference", out var sr) ? sr.GetString() ?? "" : "";
+        var status     = body.TryGetProperty("status", out var s) ? s.GetString() : null;
+        var hashCheck  = body.TryGetProperty("hashCheck", out var h) ? h.GetString() : null;
 
         if (string.IsNullOrEmpty(txRef) || string.IsNullOrEmpty(status) || string.IsNullOrEmpty(hashCheck))
             return Ok();
 
-        var privateKey = config["Ozow:PrivateKey"]!;
+        var clientSecret     = config["Ozow:OneApiClientSecret"]!;
         var resolvedSiteCode = siteCode ?? config["Ozow:SiteCode"]!;
 
-        if (!hash.VerifyPaymentNotificationHash(resolvedSiteCode, txRef, smartRef, status, privateKey, hashCheck))
+        if (!hash.VerifyPaymentNotificationHash(resolvedSiteCode, txRef, smartRef, status, clientSecret, hashCheck))
         {
             logger.LogWarning("Payment notification hash invalid. Ref={Ref}", txRef);
             return Ok();
