@@ -24,6 +24,7 @@ cfg["Ozow:PayoutApiKey"]               = cfg["OZOW_PAYOUT_API_KEY"] ?? cfg["Ozow
 cfg["Ozow:PayoutBaseUrl"]              = cfg["OZOW_PAYOUT_BASE_URL"] ?? cfg["Ozow:PayoutBaseUrl"];
 cfg["Ozow:NotifyUrl"]                  = cfg["OZOW_NOTIFY_URL"] ?? cfg["Ozow:NotifyUrl"];
 cfg["Ozow:CollectionNotifyUrl"]        = cfg["OZOW_COLLECTION_NOTIFY_URL"] ?? cfg["Ozow:CollectionNotifyUrl"];
+    cfg["Ozow:CollectionBaseUrl"]          = cfg["OZOW_COLLECTION_BASE_URL"] ?? cfg["Ozow:CollectionBaseUrl"];
 cfg["Ozow:IsTest"]                     = cfg["OZOW_IS_TEST"] ?? cfg["Ozow:IsTest"] ?? "false";
 cfg["Ozow:OneApiClientId"]             = cfg["OZOW_ONE_API_CLIENT_ID"] ?? cfg["Ozow:OneApiClientId"];
 cfg["Ozow:OneApiClientSecret"]         = cfg["OZOW_ONE_API_CLIENT_SECRET"] ?? cfg["Ozow:OneApiClientSecret"];

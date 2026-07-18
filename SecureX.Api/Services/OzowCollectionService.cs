@@ -53,6 +53,7 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
             Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"),
         };
         req.Headers.Add("ApiKey", PrivateKey);
+        logger.LogInformation("Ozow ApiKey header length={Len} first4={First}", PrivateKey?.Length, PrivateKey?[..Math.Min(4, PrivateKey?.Length ?? 0)]);
 
         var res = await client.SendAsync(req);
         var raw = await res.Content.ReadAsStringAsync();

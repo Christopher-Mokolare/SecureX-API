@@ -81,8 +81,10 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
         var ivHex   = Convert.ToHexString(SHA512.HashData(Encoding.UTF8.GetBytes(ivInput.ToLowerInvariant()))).ToLowerInvariant();
         var iv      = Encoding.UTF8.GetBytes(ivHex[..16]);
 
-        // Pad or truncate key to exactly 32 bytes using SHA-256 so entropy is not repeated
-        var key = SHA256.HashData(Encoding.UTF8.GetBytes(encryptionKey));
+        // Pad key to 32 bytes using string repetition per Ozow docs
+        var k = encryptionKey;
+        while (k.Length < 32) k += k;
+        var key = Encoding.UTF8.GetBytes(k[..32]);
 
         using var aes = Aes.Create();
         aes.KeySize = 256;
