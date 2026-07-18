@@ -24,10 +24,9 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
         string encryptionKey,
         string notifyUrl)
     {
-        var siteCode    = config["Ozow:SiteCode"]!;
-        var apiKey      = config["Ozow:PayoutApiKey"]!;
-        var privateKey  = config["Ozow:PrivateKey"]!;
-        var baseUrl     = config["Ozow:PayoutBaseUrl"] ?? "https://stagingpayoutsapi.ozow.com/v1";
+        var siteCode  = config["Ozow:SiteCode"]!;
+        var apiKey    = config["Ozow:PayoutApiKey"]!;
+        var baseUrl   = config["Ozow:PayoutBaseUrl"] ?? "https://stagingpayoutsapi.ozow.com/v1";
 
         var amountCents = (long)Math.Round(amountZar * 100);
         var encryptedAccount = EncryptAccountNumber(plainAccountNumber, merchantReference, amountCents, encryptionKey);
@@ -82,9 +81,8 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
         var ivHex   = Convert.ToHexString(SHA512.HashData(Encoding.UTF8.GetBytes(ivInput.ToLowerInvariant()))).ToLowerInvariant();
         var iv      = Encoding.UTF8.GetBytes(ivHex[..16]);
 
-        var paddedKey = encryptionKey;
-        while (paddedKey.Length < 32) paddedKey += paddedKey;
-        var key = Encoding.UTF8.GetBytes(paddedKey[..32]);
+        // Pad or truncate key to exactly 32 bytes using SHA-256 so entropy is not repeated
+        var key = SHA256.HashData(Encoding.UTF8.GetBytes(encryptionKey));
 
         using var aes = Aes.Create();
         aes.KeySize = 256;
