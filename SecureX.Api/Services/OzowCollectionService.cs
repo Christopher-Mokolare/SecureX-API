@@ -10,7 +10,7 @@ namespace SecureX.Api.Services;
 /// </summary>
 public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguration config, ILogger<OzowCollectionService> logger)
 {
-    private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+    private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNamingPolicy = null }; // Ozow One API expects PascalCase
 
     private string BaseUrl    => config["Ozow:OneApiBaseUrl"] ?? "https://stagingone.ozow.com";
     private string ClientId   => config["Ozow:OneApiClientId"]!;
