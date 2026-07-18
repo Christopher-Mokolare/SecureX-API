@@ -26,7 +26,7 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
         var opt      = "";
 
         var hash = BuildHash(SiteCode, "ZA", "ZAR", amount, bankRef,
-            opt, opt, opt, ReturnUrl, ReturnUrl, NotifyUrl, ReturnUrl, isTest, PrivateKey);
+            opt, opt, opt, ReturnUrl, ReturnUrl, ReturnUrl, NotifyUrl, isTest, PrivateKey);
 
         var body = new
         {
@@ -52,7 +52,7 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
         {
             Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"),
         };
-        req.Headers.Add("ApiKey", ApiKey);
+        req.Headers.Add("ApiKey", PrivateKey);
 
         var res = await client.SendAsync(req);
         var raw = await res.Content.ReadAsStringAsync();
