@@ -66,6 +66,7 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
         {
             Content = new StringContent(JsonSerializer.Serialize(body, JsonOpts), Encoding.UTF8, "application/json"),
         };
+        logger.LogInformation("Ozow payment body: {Body}", JsonSerializer.Serialize(body, JsonOpts));
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         req.Headers.Add("Idempotency-Key", dealReference);
         req.Headers.Add("X-Correlation-ID", dealReference);
