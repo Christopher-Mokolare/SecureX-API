@@ -10,14 +10,13 @@ namespace SecureX.Api.Services;
 /// </summary>
 public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguration config, ILogger<OzowCollectionService> logger)
 {
-    private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNamingPolicy = null }; // Ozow One API expects PascalCase
+    private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
-    private string BaseUrl    => config["Ozow:OneApiBaseUrl"] ?? "https://stagingone.ozow.com";
-    private string ClientId   => config["Ozow:OneApiClientId"]!;
+    private string BaseUrl      => config["Ozow:OneApiBaseUrl"] ?? "https://stagingone.ozow.com";
+    private string ClientId     => config["Ozow:OneApiClientId"]!;
     private string ClientSecret => config["Ozow:OneApiClientSecret"]!;
-    private string SiteCode   => config["Ozow:SiteCode"]!;
-    private string ReturnUrl  => config["Ozow:ReturnUrl"] ?? "http://securex-alb-1751040376.af-south-1.elb.amazonaws.com/payment-return";
-    private string NotifyUrl  => config["Ozow:CollectionNotifyUrl"] ?? "http://securex-alb-1751040376.af-south-1.elb.amazonaws.com/securex/payment-notification";
+    private string SiteCode     => config["Ozow:SiteCode"]!;
+    private string ReturnUrl    => config["Ozow:ReturnUrl"] ?? "http://securex-alb-1751040376.af-south-1.elb.amazonaws.com/payment-return";
 
     // ── Step 1: Get OAuth access token ───────────────────────────────────────
 
@@ -28,7 +27,7 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
         {
             ["client_id"]     = ClientId,
             ["client_secret"] = ClientSecret,
-            ["scope"]         = "payments",
+            ["scope"]         = "payment",
             ["grant_type"]    = "client_credentials",
         });
 
@@ -45,7 +44,7 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
         return doc.RootElement.GetProperty("access_token").GetString();
     }
 
-    // ── Step 2: Create payment → returns redirectUrl ──────────────────────────
+    // ── Step 2: Create payment → returns redirectUrl ─────────────────────────
 
     public async Task<string?> CreatePaymentAsync(string dealReference, decimal totalAmount)
     {
@@ -54,15 +53,11 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
 
         var body = new
         {
-            SiteCode          = SiteCode,
-            Amount            = totalAmount,
-            CurrencyCode      = "ZAR",
-            MerchantReference = dealReference,
-            BankReference     = dealReference,
-            ExpireAt          = DateTime.UtcNow.AddHours(24).ToString("o"),
-            NotifyUrl         = NotifyUrl,
-            ReturnUrl         = ReturnUrl,
-            IsTest            = true,
+            siteCode          = SiteCode,
+            amount            = new { currency = "ZAR", value = totalAmount },
+            merchantReference = dealReference,
+            expireAt          = DateTime.UtcNow.AddHours(24).ToString("o"),
+            returnUrl         = ReturnUrl,
         };
 
         var client = httpFactory.CreateClient("OzowOneApi");
@@ -71,6 +66,8 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
             Content = new StringContent(JsonSerializer.Serialize(body, JsonOpts), Encoding.UTF8, "application/json"),
         };
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Headers.Add("Idempotency-Key", dealReference);
+        req.Headers.Add("X-Correlation-ID", dealReference);
 
         var res = await client.SendAsync(req);
         var raw = await res.Content.ReadAsStringAsync();
