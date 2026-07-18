@@ -17,6 +17,7 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
     private string ClientSecret => config["Ozow:OneApiClientSecret"]!;
     private string SiteCode   => config["Ozow:SiteCode"]!;
     private string ReturnUrl  => config["Ozow:ReturnUrl"] ?? "http://securex-alb-1751040376.af-south-1.elb.amazonaws.com/payment-return";
+    private string NotifyUrl  => config["Ozow:CollectionNotifyUrl"] ?? "http://securex-alb-1751040376.af-south-1.elb.amazonaws.com/securex/payment-notification";
 
     // ── Step 1: Get OAuth access token ───────────────────────────────────────
 
@@ -58,6 +59,7 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
             merchantReference = dealReference,
             bankReference     = dealReference,
             expireAt          = DateTime.UtcNow.AddHours(24).ToString("o"),
+            notifyUrl         = NotifyUrl,
             returnUrl         = ReturnUrl,
         };
 
