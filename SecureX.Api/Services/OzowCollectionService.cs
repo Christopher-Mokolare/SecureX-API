@@ -27,7 +27,7 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
         {
             ["client_id"]     = ClientId,
             ["client_secret"] = ClientSecret,
-            ["scope"]         = "payment",
+            ["scope"]         = "payments",
             ["grant_type"]    = "client_credentials",
         });
 
