@@ -51,13 +51,13 @@ public class HashService
         return FixedTimeEqual(Sha512Lower(input), req.HashCheck.ToLowerInvariant());
     }
 
-    // ── Verify One API payment-notification webhook ───────────────────────────
-    // Ozow One API signs the notification with SHA-512(siteCode + merchantReference + status + clientSecret)
+    // ── Verify standard payment-notification webhook ────────────────────────
+    // SHA-512(siteCode + transactionReference + smartReference + status + privateKey)
 
-    public bool VerifyPaymentNotificationHash(string siteCode, string merchantReference,
-        string status, string clientSecret, string hashCheck)
+    public bool VerifyPaymentNotificationHash(string siteCode, string transactionRef,
+        string smartRef, string status, string privateKey, string hashCheck)
     {
-        var input = string.Concat(siteCode, merchantReference, status, clientSecret);
+        var input = string.Concat(siteCode, transactionRef, smartRef, status, privateKey);
         return FixedTimeEqual(Sha512Lower(input), hashCheck.ToLowerInvariant());
     }
 
