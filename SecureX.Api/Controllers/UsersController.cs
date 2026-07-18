@@ -9,7 +9,7 @@ namespace SecureX.Api.Controllers;
 [ApiController]
 [Route("api/users")]
 [Microsoft.AspNetCore.Authorization.Authorize]
-public class UsersController(AppDbContext db, ThisIsMeAvsService avsService, IHttpClientFactory httpFactory, IConfiguration config) : ControllerBase
+public class UsersController(AppDbContext db, IHttpClientFactory httpFactory, IConfiguration config) : ControllerBase
 {
     // ── POST /api/users/{id}/bank-details ────────────────────────────────────
     [HttpPost("{id:guid}/bank-details")]
@@ -32,14 +32,6 @@ public class UsersController(AppDbContext db, ThisIsMeAvsService avsService, IHt
         if (!string.IsNullOrWhiteSpace(req.IdNumber))
             user.IdNumber = req.IdNumber;
 
-        // Run AVS immediately if we have an ID number
-        if (!string.IsNullOrWhiteSpace(user.IdNumber))
-        {
-            var verified = await avsService.VerifyBankAccountAsync(
-                user.IdNumber, req.AccountNumber, req.BranchCode);
-            user.BankVerificationStatus = verified ? KycStatus.Approved : KycStatus.Failed;
-        }
-
         user.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
 
@@ -61,7 +53,6 @@ public class UsersController(AppDbContext db, ThisIsMeAvsService avsService, IHt
             FullName = user.FullName,
             Email = user.Email,
             Phone = user.Phone,
-            SmileVerificationStatus = user.SmileVerificationStatus.ToString(),
             BankVerificationStatus = user.BankVerificationStatus.ToString(),
         });
     }

@@ -12,7 +12,6 @@ public class ReconciliationService(IServiceScopeFactory scopeFactory, IHttpClien
     [
         TransactionStatus.PaymentPending,
         TransactionStatus.FundsSecured,
-        TransactionStatus.SellerKycPending,
         TransactionStatus.LogisticsPending,
         TransactionStatus.ItemDelivered,
     ];

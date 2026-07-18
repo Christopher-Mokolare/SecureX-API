@@ -3,12 +3,8 @@ namespace SecureX.Api.Models;
 public enum TransactionStatus
 {
     Initialized,
-    BuyerKycPending,
-    BuyerKycFailed,
     PaymentPending,
     FundsSecured,
-    SellerKycPending,
-    SellerKycFailed,
     RequiresRefund,
     LogisticsPending,
     ItemDelivered,
@@ -30,7 +26,6 @@ public class User
     public string BankGroupId { get; set; } = "";       // Ozow bank group UUID
     public string Email { get; set; } = "";
     public string Phone { get; set; } = "";
-    public KycStatus SmileVerificationStatus { get; set; } = KycStatus.Pending;
     public KycStatus BankVerificationStatus { get; set; } = KycStatus.Pending;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

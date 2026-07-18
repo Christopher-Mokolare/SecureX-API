@@ -45,7 +45,6 @@ public class UserResponse
     public string FullName { get; set; } = "";
     public string Email { get; set; } = "";
     public string Phone { get; set; } = "";
-    public string SmileVerificationStatus { get; set; } = "";
     public string BankVerificationStatus { get; set; } = "";
 }
 

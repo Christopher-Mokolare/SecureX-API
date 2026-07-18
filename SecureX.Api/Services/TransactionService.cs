@@ -4,7 +4,7 @@ using SecureX.Api.Models;
 
 namespace SecureX.Api.Services;
 
-public class TransactionService(AppDbContext db, DealReferenceService refService, OzowPayoutService payoutService, ThisIsMeAvsService avsService, IConfiguration config, ILogger<TransactionService> logger)
+public class TransactionService(AppDbContext db, DealReferenceService refService, OzowPayoutService payoutService, IConfiguration config, ILogger<TransactionService> logger)
 {
     // ── Fee calculation (matches frontend js/script.js) ──────────────────────
     // Standard:         max(value * 2.5%, R150)
@@ -143,30 +143,6 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
         return true;
     }
 
-    // ── Step 4/7: KYC result ─────────────────────────────────────────────────
-
-    public async Task HandleKycResultAsync(Guid userId, bool approved)
-    {
-        var buyerTx = await db.Transactions.FirstOrDefaultAsync(
-            t => t.BuyerId == userId && t.Status == TransactionStatus.BuyerKycPending);
-        if (buyerTx is not null)
-        {
-            var next = approved ? TransactionStatus.PaymentPending : TransactionStatus.BuyerKycFailed;
-            await AdvanceStateAsync(buyerTx.Id, TransactionStatus.BuyerKycPending,
-                next, "smileid-webhook", $"Buyer KYC {(approved ? "approved" : "failed")}", buyerTx.Version);
-            return;
-        }
-
-        var sellerTx = await db.Transactions.FirstOrDefaultAsync(
-            t => t.SellerId == userId && t.Status == TransactionStatus.SellerKycPending);
-        if (sellerTx is not null)
-        {
-            var next = approved ? TransactionStatus.LogisticsPending : TransactionStatus.RequiresRefund;
-            await AdvanceStateAsync(sellerTx.Id, TransactionStatus.SellerKycPending,
-                next, "smileid-webhook", $"Seller KYC {(approved ? "approved" : "failed")}", sellerTx.Version);
-        }
-    }
-
     // ── Dispute resolution — admin decides outcome ───────────────────────────
 
     public async Task<Transaction> ResolveDisputeAsync(Guid txId, string decision, string actor)
@@ -245,21 +221,7 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
         var encKey     = config["Ozow:AccountNumberDecryptionKey"]!;
         var payoutAmount = tx.ItemValue - tx.SellerFee;
 
-        // BankGroupId stored on user — populated when seller adds bank details
         var bankGroupId = seller.BankGroupId;
-
-        // Verify seller bank account via ThisIsMe AVS before releasing funds
-        var skipAvs = config["SKIP_AVS_FOR_STAGING"] == "true";
-        var bankVerified = skipAvs || await avsService.VerifyBankAccountAsync(
-            seller.IdNumber, seller.BankAccountNumber, seller.BankBranchCode);
-
-        if (!bankVerified)
-        {
-            logger.LogWarning("TriggerPayout: AVS failed for seller {SellerId} — payout blocked", tx.SellerId);
-            seller.BankVerificationStatus = KycStatus.Failed;
-            await db.SaveChangesAsync();
-            return;
-        }
 
         seller.BankVerificationStatus = KycStatus.Approved;
         await db.SaveChangesAsync();

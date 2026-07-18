@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System.Text.Json;
 using SecureX.Api.Data;
 using SecureX.Api.Models;
 using SecureX.Api.Services;
@@ -10,17 +9,8 @@ namespace SecureX.Api.Controllers;
 [ApiController]
 [Route("api/transactions")]
 [Microsoft.AspNetCore.Authorization.Authorize]
-public class TransactionsController(TransactionService txService, AppDbContext db, SmileIdService smileId, OzowCollectionService collectionService) : ControllerBase
+public class TransactionsController(TransactionService txService, AppDbContext db, OzowCollectionService collectionService) : ControllerBase
 {
-    // Approved result codes from SmileID docs
-    private static readonly HashSet<string> ApprovedCodes =
-        ["1020", "1021", "1012", "0810", "1210", "0820", "1220", "0840", "1240"];
-
-    private static readonly HashSet<string> ProvisionalCodes =
-        ["0812", "0815", "0822", "0825", "0814", "0824", "0844"];
-
-    private static readonly HashSet<string> RetryableCodes = ["1015", "0908"];
-
     // ── POST /api/transactions — submit deal form ────────────────────────────
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateTransactionRequest req)
@@ -54,76 +44,6 @@ public class TransactionsController(TransactionService txService, AppDbContext d
             .Include(t => t.Seller)
             .FirstOrDefaultAsync(t => t.DealReference == dealReference);
         return tx is null ? NotFound() : Ok(Map(tx));
-    }
-
-    // ── POST /api/transactions/{id}/start-buyer-kyc ──────────────────────────
-    [HttpPost("{id:guid}/start-buyer-kyc")]
-    public async Task<IActionResult> StartBuyerKyc(Guid id, [FromBody] AdvanceStateRequest req)
-    {
-        try
-        {
-            var tx = await txService.AdvanceStateAsync(id,
-                TransactionStatus.Initialized, TransactionStatus.BuyerKycPending,
-                req.Actor, req.Details ?? "Buyer KYC started", req.ExpectedVersion);
-
-            var token = await smileId.GetWebTokenAsync(tx.BuyerId, "");
-            return Ok(new { transaction = Map(tx), smileToken = token });
-        }
-        catch (DbUpdateConcurrencyException) { return Conflict(new ErrorResponse { Error = "Transaction was modified concurrently. Refresh and retry." }); }
-        catch (KeyNotFoundException) { return NotFound(); }
-        catch (InvalidOperationException ex) { return BadRequest(new ErrorResponse { Error = ex.Message }); }
-    }
-
-    // ── POST /api/transactions/kyc-webhook — SmileID posts here ─────────────
-    [HttpPost("kyc-webhook")]
-    [Microsoft.AspNetCore.Authorization.AllowAnonymous]
-    public async Task<IActionResult> KycWebhook([FromBody] KycWebhookRequest req)
-    {
-        // Verify SmileID callback signature
-        if (!string.IsNullOrEmpty(req.Timestamp) && !string.IsNullOrEmpty(req.Signature))
-        {
-            if (!smileId.VerifyCallbackSignature(req.Timestamp, req.Signature))
-                return Unauthorized(new ErrorResponse { Error = "Invalid SmileID signature" });
-        }
-
-        Guid userId;
-        try
-        {
-            var pp = JsonSerializer.Deserialize<JsonElement>(req.PartnerParams);
-            userId = Guid.Parse(pp.GetProperty("user_id").GetString()!);
-        }
-        catch
-        {
-            return BadRequest(new ErrorResponse { Error = "Invalid partner_params" });
-        }
-
-        if (RetryableCodes.Contains(req.ResultCode))
-            return Ok(new { status = "retryable_error", resultCode = req.ResultCode });
-
-        if (ProvisionalCodes.Contains(req.ResultCode))
-            return Ok(new { status = "provisional", resultCode = req.ResultCode });
-
-        var approved = ApprovedCodes.Contains(req.ResultCode);
-        await txService.HandleKycResultAsync(userId, approved);
-        return Ok(new { status = approved ? "approved" : "rejected", resultCode = req.ResultCode });
-    }
-
-    // ── POST /api/transactions/{id}/start-seller-kyc ─────────────────────────
-    [HttpPost("{id:guid}/start-seller-kyc")]
-    public async Task<IActionResult> StartSellerKyc(Guid id, [FromBody] AdvanceStateRequest req)
-    {
-        try
-        {
-            var tx = await txService.AdvanceStateAsync(id,
-                TransactionStatus.FundsSecured, TransactionStatus.SellerKycPending,
-                req.Actor, req.Details ?? "Seller KYC started", req.ExpectedVersion);
-
-            var token = await smileId.GetWebTokenAsync(tx.SellerId, "");
-            return Ok(new { transaction = Map(tx), smileToken = token });
-        }
-        catch (DbUpdateConcurrencyException) { return Conflict(new ErrorResponse { Error = "Transaction was modified concurrently. Refresh and retry." }); }
-        catch (KeyNotFoundException) { return NotFound(); }
-        catch (InvalidOperationException ex) { return BadRequest(new ErrorResponse { Error = ex.Message }); }
     }
 
     // ── POST /api/transactions/{id}/mark-delivered ───────────────────────────
@@ -263,7 +183,6 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         FullName = u.FullName,
         Email = u.Email,
         Phone = u.Phone,
-        SmileVerificationStatus = u.SmileVerificationStatus.ToString(),
         BankVerificationStatus = u.BankVerificationStatus.ToString(),
     };
 }

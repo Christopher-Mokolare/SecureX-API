@@ -114,15 +114,3 @@ public class AdvanceStateRequest
     public int ExpectedVersion { get; set; }
 }
 
-public class KycWebhookRequest
-{
-    public string SmileJobId { get; set; } = "";
-    public string PartnerParams { get; set; } = "";  // JSON string containing user_id
-    public string ResultCode { get; set; } = "";
-    public string ResultText { get; set; } = "";
-    public string Actions { get; set; } = "";
-    public bool Success { get; set; }
-    public string Timestamp { get; set; } = "";      // SmileID callback signature fields
-    public string Signature { get; set; } = "";
-    public Guid UserId { get; set; }
-}

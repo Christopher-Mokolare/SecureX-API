@@ -29,12 +29,6 @@ cfg["Ozow:OneApiClientId"]             = cfg["OZOW_ONE_API_CLIENT_ID"] ?? cfg["O
 cfg["Ozow:OneApiClientSecret"]         = cfg["OZOW_ONE_API_CLIENT_SECRET"] ?? cfg["Ozow:OneApiClientSecret"];
 cfg["Ozow:OneApiBaseUrl"]              = cfg["OZOW_ONE_API_BASE_URL"] ?? cfg["Ozow:OneApiBaseUrl"];
 cfg["Ozow:ReturnUrl"]                  = cfg["OZOW_RETURN_URL"] ?? cfg["Ozow:ReturnUrl"];
-cfg["SmileId:PartnerId"]               = cfg["SMILEID_PARTNER_ID"] ?? cfg["SmileId:PartnerId"];
-cfg["SmileId:ApiKey"]                  = cfg["SMILEID_API_KEY"] ?? cfg["SmileId:ApiKey"];
-cfg["SmileId:BaseUrl"]                 = cfg["SMILEID_BASE_URL"] ?? cfg["SmileId:BaseUrl"];
-cfg["SmileId:CallbackUrl"]             = cfg["SMILEID_CALLBACK_URL"] ?? cfg["SmileId:CallbackUrl"];
-cfg["ThisIsMe:ApiKey"]                 = cfg["THISISME_API_KEY"] ?? cfg["ThisIsMe:ApiKey"];
-cfg["ThisIsMe:BaseUrl"]                = cfg["THISISME_BASE_URL"] ?? cfg["ThisIsMe:BaseUrl"];
 cfg["ConnectionStrings:Default"]       = cfg["DATABASE_URL"] ?? cfg["ConnectionStrings:Default"];
 
 // ── Database ─────────────────────────────────────────────────────────────────
@@ -82,14 +76,10 @@ builder.Services.AddScoped<HashService>();
 builder.Services.AddScoped<DealReferenceService>();
 builder.Services.AddScoped<OzowCollectionService>();
 builder.Services.AddScoped<OzowPayoutService>();
-builder.Services.AddScoped<SmileIdService>();
-builder.Services.AddScoped<ThisIsMeAvsService>();
 builder.Services.AddScoped<TransactionService>();
 builder.Services.AddHostedService<ReconciliationService>();
 builder.Services.AddHttpClient("OzowPayout");
 builder.Services.AddHttpClient("OzowOneApi");
-builder.Services.AddHttpClient("SmileId");
-builder.Services.AddHttpClient("ThisIsMe");
 
 builder.Services.AddControllers()
     .AddJsonOptions(o =>
