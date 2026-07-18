@@ -65,6 +65,7 @@ public class TransactionResponse
     public decimal TotalCheckoutAmount { get; set; }
     public string ServiceType { get; set; } = "";
     public int Version { get; set; }
+    public string? PaymentRedirectUrl { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? InspectionWindowEndsAt { get; set; }
     public UserResponse? Buyer { get; set; }

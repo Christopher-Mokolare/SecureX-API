@@ -2,7 +2,6 @@ namespace SecureX.Api.Models;
 
 public enum TransactionStatus
 {
-    Initialized,
     PaymentPending,
     FundsSecured,
     RequiresRefund,
@@ -46,7 +45,7 @@ public class Transaction
     public decimal BuyerFee { get; set; }               // portion buyer pays
     public decimal SellerFee { get; set; }              // portion deducted from payout
     public ServiceType ServiceType { get; set; }
-    public TransactionStatus Status { get; set; } = TransactionStatus.Initialized;
+    public TransactionStatus Status { get; set; } = TransactionStatus.PaymentPending;
     public int Version { get; set; } = 1;
     public DateTime? InspectionWindowEndsAt { get; set; } // set when ItemDelivered
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

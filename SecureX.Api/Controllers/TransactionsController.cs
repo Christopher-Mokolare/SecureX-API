@@ -21,7 +21,14 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         if (req.BuyerEmail == req.SellerEmail) return BadRequest(new ErrorResponse { Error = "Buyer and seller cannot be the same person" });
 
         var tx = await txService.CreateAsync(req);
-        return Ok(Map(tx));
+
+        var redirectUrl = await collectionService.CreatePaymentAsync(tx.DealReference, tx.TotalCheckoutAmount);
+        if (redirectUrl is null)
+            return StatusCode(502, new ErrorResponse { Error = "Transaction created but failed to generate payment link" });
+
+        var response = Map(tx);
+        response.PaymentRedirectUrl = redirectUrl;
+        return Ok(response);
     }
 
     // ── GET /api/transactions/{id} ───────────────────────────────────────────

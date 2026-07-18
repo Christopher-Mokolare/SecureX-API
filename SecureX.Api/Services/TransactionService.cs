@@ -64,11 +64,11 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
             SellerFee = sellerFee,
             TotalCheckoutAmount = req.ItemValue + buyerFee,
             ServiceType = req.ServiceType,
-            Status = TransactionStatus.Initialized,
+            Status = TransactionStatus.PaymentPending,
         };
 
         db.Transactions.Add(tx);
-        AppendAudit(tx, null, TransactionStatus.Initialized, "buyer", "Transaction created via signup form");
+        AppendAudit(tx, null, TransactionStatus.PaymentPending, "system", "Transaction created — awaiting buyer payment");
         await db.SaveChangesAsync();
         return tx;
     }
