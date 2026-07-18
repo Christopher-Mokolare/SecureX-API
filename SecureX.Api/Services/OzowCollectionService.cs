@@ -54,13 +54,15 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
 
         var body = new
         {
-            siteCode          = SiteCode,
-            amount            = new { currency = "ZAR", value = totalAmount },
-            merchantReference = dealReference,
-            bankReference     = dealReference,
-            expireAt          = DateTime.UtcNow.AddHours(24).ToString("o"),
-            notifyUrl         = NotifyUrl,
-            returnUrl         = ReturnUrl,
+            SiteCode          = SiteCode,
+            Amount            = totalAmount,
+            CurrencyCode      = "ZAR",
+            MerchantReference = dealReference,
+            BankReference     = dealReference,
+            ExpireAt          = DateTime.UtcNow.AddHours(24).ToString("o"),
+            NotifyUrl         = NotifyUrl,
+            ReturnUrl         = ReturnUrl,
+            IsTest            = true,
         };
 
         var client = httpFactory.CreateClient("OzowOneApi");
