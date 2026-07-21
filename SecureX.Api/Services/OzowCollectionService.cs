@@ -18,10 +18,12 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
     private string NotifyUrl  => config["Ozow:CollectionNotifyUrl"]!;
     private string ReturnUrl  => config["Ozow:ReturnUrl"] ?? "http://securex-alb-1751040376.af-south-1.elb.amazonaws.com/payment-return";
 
+    private string BankRefPrefix => config["Ozow:BankRefPrefix"] ?? "";
+
     public async Task<string?> CreatePaymentAsync(string dealReference, decimal totalAmount)
     {
         var amount   = totalAmount.ToString("F2");
-        var bankRef  = SanitiseRef(dealReference);
+        var bankRef  = SanitiseRef(BankRefPrefix + dealReference);
         var isTest   = "true";
         var opt      = "";
 
@@ -53,7 +55,6 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
             Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"),
         };
         req.Headers.Add("ApiKey", PrivateKey);
-        logger.LogInformation("Ozow ApiKey header length={Len} first4={First}", PrivateKey?.Length, PrivateKey?[..Math.Min(4, PrivateKey?.Length ?? 0)]);
 
         var res = await client.SendAsync(req);
         var raw = await res.Content.ReadAsStringAsync();
