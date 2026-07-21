@@ -80,7 +80,7 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
     // SHA-512: siteCode+countryCode+currencyCode+amount+bankRef+opt1+opt2+opt3+cancelUrl+errorUrl+successUrl+notifyUrl+isTest+privateKey
     private static string BuildHash(string siteCode, string country, string currency, string amount,
         string bankRef, string opt1, string opt2, string opt3,
-        string cancelUrl, string errorUrl, string notifyUrl, string successUrl,
+        string cancelUrl, string errorUrl, string successUrl, string notifyUrl,
         string isTest, string privateKey)
     {
         var input = string.Concat(siteCode, country, currency, amount,
@@ -89,5 +89,5 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
     }
 
     private static string SanitiseRef(string input) =>
-        new string(input.Where(c => char.IsLetterOrDigit(c) || c == '-').ToArray())[..Math.Min(input.Length, 20)];
+        new string(input.Where(c => char.IsLetterOrDigit(c) || c == '-').Take(20).ToArray());
 }
