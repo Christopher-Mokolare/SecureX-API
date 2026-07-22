@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SecureX — Test Payin</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; }
+    input, select { width: 100%; padding: 8px; margin: 6px 0 14px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+    button { background: #1a1a2e; color: #fff; padding: 10px 24px; border: none; border-radius: 4px; cursor: pointer; font-size: 15px; }
+    button:hover { background: #16213e; }
+    pre { background: #f4f4f4; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+    .step { margin-bottom: 28px; }
+    h3 { margin-bottom: 4px; }
+    .status { padding: 8px 12px; border-radius: 4px; margin-top: 8px; display: none; }
+    .ok  { background: #d4edda; color: #155724; }
+    .err { background: #f8d7da; color: #721c24; }
+    label { font-weight: 600; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h2>SecureX — Payin Test</h2>
+  <p style="color:#555">Creates a deal, walks it to PaymentPending, then redirects to Ozow for payment.</p>
+
+  <div class="step">
+    <h3>Config</h3>
+    <label>ALB Base URL</label>
+    <input id="baseUrl" value="http://securex-alb-1751040376.af-south-1.elb.amazonaws.com" />
+    <label>Buyer Email</label>
+    <input id="buyerEmail" value="karabo@secureexchange.co.za" />
+    <label>Item Value (ZAR)</label>
+    <input id="itemValue" type="number" value="10" />
+  </div>
+
+  <div class="step">
+    <button onclick="runAll()">▶ Run Full Flow &amp; Pay</button>
+    <div id="status" class="status"></div>
+  </div>
+
+  <div class="step">
+    <h3>Log</h3>
+    <pre id="log">Waiting...</pre>
+  </div>
+
+  <script>
+    const log = (msg) => { document.getElementById('log').textContent += msg + '\n'; };
+    const setStatus = (msg, ok) => {
+      const el = document.getElementById('status');
+      el.textContent = msg;
+      el.className = 'status ' + (ok ? 'ok' : 'err');
+      el.style.display = 'block';
+    };
+
+    async function api(baseUrl, method, path, body, token) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = 'Bearer ' + token;
+      const res = await fetch(baseUrl + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+      const json = await res.json();
+      if (!res.ok) throw new Error(`${method} ${path} → ${res.status}: ${JSON.stringify(json)}`);
+      return json;
+    }
+
+    async function runAll() {
+      document.getElementById('log').textContent = '';
+      setStatus('Running...', true);
+
+      const baseUrl    = document.getElementById('baseUrl').value.trim();
+      const buyerEmail = document.getElementById('buyerEmail').value.trim();
+      const itemValue  = parseFloat(document.getElementById('itemValue').value);
+
+      try {
+        // 1. Get JWT
+        log('1. Getting JWT...');
+        const { token } = await api(baseUrl, 'POST', '/api/auth/token', { email: buyerEmail });
+        log('   ✓ token: ' + token.slice(0, 40) + '...');
+
+        // 2. Create transaction
+        log('2. Creating transaction...');
+        const tx = await api(baseUrl, 'POST', '/api/transactions', {
+          buyerFullName: 'Test Buyer', buyerEmail,
+          buyerPhone: '0821234567',
+          sellerFullName: 'Test Seller', sellerEmail: 'seller@test.com',
+          sellerPhone: '0829876543',
+          itemTitle: 'Payin Test', itemDescription: 'Testing Ozow collection',
+          itemValue, sellerLocation: 'JHB',
+          serviceType: 'Standard', feePayer: 'Buyer',
+        }, token);
+        log(`   ✓ ref: ${tx.DealReference}  id: ${tx.Id}  total: R${tx.TotalCheckoutAmount}`);
+
+        // 3. Start buyer KYC → BuyerKycPending
+        log('3. Starting buyer KYC...');
+        const kycStart = await api(baseUrl, 'POST', `/api/transactions/${tx.Id}/start-buyer-kyc`, {
+          actor: 'buyer', expectedVersion: tx.Version,
+        }, token);
+        log(`   ✓ status: ${kycStart.transaction.Status}  buyerId: ${kycStart.transaction.Buyer.Id}`);
+
+        // 4. Simulate KYC approved → PaymentPending
+        log('4. Simulating KYC approved...');
+        const kycResult = await api(baseUrl, 'POST', '/api/transactions/kyc-webhook', {
+          smileJobId: 'test-' + Date.now(),
+          partnerParams: JSON.stringify({ user_id: kycStart.transaction.Buyer.Id }),
+          resultCode: '1020', resultText: 'Approved', actions: '',
+          success: true, timestamp: '', signature: '',
+        });
+        log(`   ✓ kyc: ${kycResult.status}`);
+
+        // 5. Get payment link
+        log('5. Getting payment link...');
+        const linkRes = await api(baseUrl, 'POST', `/api/transactions/${tx.Id}/payment-link`, null, token);
+        log(`   ✓ redirectUrl: ${linkRes.redirectUrl}`);
+
+        setStatus(`✓ Deal ${linkRes.dealReference} — R${linkRes.totalAmount} — redirecting to Ozow...`, true);
+
+        // 6. Redirect to Ozow
+        log('6. Redirecting to Ozow...');
+        window.location.href = linkRes.redirectUrl;
+
+      } catch (err) {
+        log('ERROR: ' + err.message);
+        setStatus('✗ ' + err.message, false);
+      }
+    }
+  </script>
+</body>
+</html>
