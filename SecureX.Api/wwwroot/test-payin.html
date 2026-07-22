@@ -86,33 +86,11 @@
         }, token);
         log(`   ✓ ref: ${tx.DealReference}  id: ${tx.Id}  total: R${tx.TotalCheckoutAmount}`);
 
-        // 3. Start buyer KYC → BuyerKycPending
-        log('3. Starting buyer KYC...');
-        const kycStart = await api(baseUrl, 'POST', `/api/transactions/${tx.Id}/start-buyer-kyc`, {
-          actor: 'buyer', expectedVersion: tx.Version,
-        }, token);
-        log(`   ✓ status: ${kycStart.transaction.Status}  buyerId: ${kycStart.transaction.Buyer.Id}`);
-
-        // 4. Simulate KYC approved → PaymentPending
-        log('4. Simulating KYC approved...');
-        const kycResult = await api(baseUrl, 'POST', '/api/transactions/kyc-webhook', {
-          smileJobId: 'test-' + Date.now(),
-          partnerParams: JSON.stringify({ user_id: kycStart.transaction.Buyer.Id }),
-          resultCode: '1020', resultText: 'Approved', actions: '',
-          success: true, timestamp: '', signature: '',
-        });
-        log(`   ✓ kyc: ${kycResult.status}`);
-
-        // 5. Get payment link
-        log('5. Getting payment link...');
-        const linkRes = await api(baseUrl, 'POST', `/api/transactions/${tx.Id}/payment-link`, null, token);
-        log(`   ✓ redirectUrl: ${linkRes.redirectUrl}`);
-
-        setStatus(`✓ Deal ${linkRes.dealReference} — R${linkRes.totalAmount} — redirecting to Ozow...`, true);
-
-        // 6. Redirect to Ozow
-        log('6. Redirecting to Ozow...');
-        window.location.href = linkRes.redirectUrl;
+        // 3. Redirect to Ozow
+        log('3. Redirecting to Ozow...');
+        log(`   ✓ paymentUrl: ${tx.PaymentRedirectUrl}`);
+        setStatus(`✓ Deal ${tx.DealReference} — R${tx.TotalCheckoutAmount} — redirecting to Ozow...`, true);
+        window.location.href = tx.PaymentRedirectUrl;
 
       } catch (err) {
         log('ERROR: ' + err.message);
