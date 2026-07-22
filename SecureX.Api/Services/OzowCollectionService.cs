@@ -27,7 +27,7 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
         var isTest   = "true";
         var opt      = "";
 
-        var hash = BuildHash(SiteCode, "ZA", "ZAR", amount, bankRef,
+        var hash = BuildHash(SiteCode, "ZA", "ZAR", amount, dealReference, bankRef,
             opt, opt, opt, ReturnUrl, ReturnUrl, ReturnUrl, NotifyUrl, isTest, PrivateKey);
 
         var body = new
@@ -73,18 +73,23 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
         }
 
         var url = urlProp.GetString();
-        logger.LogInformation("Ozow payment created. Ref={Ref} Url={Url} Raw={Raw}", dealReference, url, raw);
+        if (string.IsNullOrEmpty(url))
+        {
+            logger.LogError("Ozow returned null url. Raw={Raw}", raw);
+            return null;
+        }
+        logger.LogInformation("Ozow payment created. Ref={Ref} Url={Url}", dealReference, url);
         return url;
     }
 
-    // SHA-512: siteCode+countryCode+currencyCode+amount+bankRef+opt1+opt2+opt3+cancelUrl+errorUrl+successUrl+notifyUrl+isTest+privateKey
+    // SHA-512: siteCode+countryCode+currencyCode+amount+transactionRef+bankRef+opt1+opt2+opt3+cancelUrl+errorUrl+successUrl+notifyUrl+isTest+privateKey
     private static string BuildHash(string siteCode, string country, string currency, string amount,
-        string bankRef, string opt1, string opt2, string opt3,
+        string transactionRef, string bankRef, string opt1, string opt2, string opt3,
         string cancelUrl, string errorUrl, string successUrl, string notifyUrl,
         string isTest, string privateKey)
     {
         var input = string.Concat(siteCode, country, currency, amount,
-            bankRef, opt1, opt2, opt3, cancelUrl, errorUrl, successUrl, notifyUrl, isTest, privateKey);
+            transactionRef, bankRef, opt1, opt2, opt3, cancelUrl, errorUrl, successUrl, notifyUrl, isTest, privateKey);
         return Convert.ToHexString(SHA512.HashData(Encoding.UTF8.GetBytes(input.ToLowerInvariant()))).ToLowerInvariant();
     }
 
