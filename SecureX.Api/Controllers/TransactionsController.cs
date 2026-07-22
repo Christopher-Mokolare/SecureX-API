@@ -53,6 +53,22 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         return tx is null ? NotFound() : Ok(Map(tx));
     }
 
+    // ── POST /api/transactions/{id}/start-logistics ─────────────────────────
+    [HttpPost("{id:guid}/start-logistics")]
+    public async Task<IActionResult> StartLogistics(Guid id, [FromBody] AdvanceStateRequest req)
+    {
+        try
+        {
+            var tx = await txService.AdvanceStateAsync(id,
+                TransactionStatus.FundsSecured, TransactionStatus.LogisticsPending,
+                req.Actor, "Seller confirmed delivery arranged — logistics in progress", req.ExpectedVersion);
+            return Ok(Map(tx));
+        }
+        catch (DbUpdateConcurrencyException) { return Conflict(new ErrorResponse { Error = "Transaction was modified concurrently. Refresh and retry." }); }
+        catch (KeyNotFoundException) { return NotFound(); }
+        catch (InvalidOperationException ex) { return BadRequest(new ErrorResponse { Error = ex.Message }); }
+    }
+
     // ── POST /api/transactions/{id}/mark-delivered ───────────────────────────
     [HttpPost("{id:guid}/mark-delivered")]
     public async Task<IActionResult> MarkDelivered(Guid id, [FromBody] AdvanceStateRequest req)
