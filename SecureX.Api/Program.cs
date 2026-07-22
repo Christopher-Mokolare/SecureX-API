@@ -137,8 +137,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseStaticFiles();
 app.MapGet("/health", () => Results.Ok(new { ok = true }));
-app.MapGet("/test-payin", () => Results.Content(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "test-payin.html")), "text/html"));
 app.MapControllers();
 
 // ── Auto-migrate on startup ───────────────────────────────────────────────────

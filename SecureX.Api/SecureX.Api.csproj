@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
-    <Content Include="test-payin.html" CopyToOutputDirectory="Always" />
+    <Content Include="wwwroot\**" CopyToOutputDirectory="Always" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Amazon.AspNetCore.DataProtection.SSM" Version="3.1.1" />
