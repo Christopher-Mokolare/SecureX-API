@@ -15,26 +15,18 @@ public class PayoutVerifyResponse
     [JsonPropertyName("reason")]
     public string Reason { get; set; } = "";
 
-    [JsonPropertyName("PayoutId")]
-    public string PayoutIdPascal => PayoutId;
-    [JsonPropertyName("IsVerified")]
-    public bool IsVerifiedPascal => IsVerified;
-    [JsonPropertyName("AccountNumberDecryptionKey")]
-    public string AccountNumberDecryptionKeyPascal => AccountNumberDecryptionKey;
-    [JsonPropertyName("Reason")]
-    public string ReasonPascal => Reason;
 }
 
 // ── Ozow notification ────────────────────────────────────────────────────────
 
 public class PayoutNotificationResponse
 {
-    public bool Received { get; set; }
-    public bool Processed { get; set; }
-    public bool Duplicate { get; set; }
-    public bool HashValid { get; set; }
-    public string? PayoutId { get; set; }
-    public string? Reason { get; set; }
+    [JsonPropertyName("received")] public bool Received { get; set; }
+    [JsonPropertyName("processed")] public bool Processed { get; set; }
+    [JsonPropertyName("duplicate")] public bool Duplicate { get; set; }
+    [JsonPropertyName("hashValid")] public bool HashValid { get; set; }
+    [JsonPropertyName("payoutId")] public string? PayoutId { get; set; }
+    [JsonPropertyName("reason")] public string? Reason { get; set; }
 }
 
 // ── Users ────────────────────────────────────────────────────────────────────

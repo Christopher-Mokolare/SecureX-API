@@ -32,7 +32,7 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
         var encryptedAccount = EncryptAccountNumber(plainAccountNumber, merchantReference, amountCents, encryptionKey);
         var customerRef = SanitiseBankRef(merchantReference);
 
-        var hash = BuildHash(siteCode, amountZar, merchantReference, customerRef,
+        var hash = BuildHash(siteCode, amountCents, merchantReference, customerRef,
             false, notifyUrl, bankGroupId, encryptedAccount, branchCode, apiKey);
 
         var body = new
@@ -104,11 +104,10 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
     // isRtc + notifyUrl + bankGroupId + accountNumber + branchCode + apiKey
 
     private static string BuildHash(
-        string siteCode, decimal amount, string merchantRef, string customerRef,
+        string siteCode, long amountCents, string merchantRef, string customerRef,
         bool isRtc, string notifyUrl, string bankGroupId, string accountNumber,
         string branchCode, string apiKey)
     {
-        var amountCents = (long)Math.Round(amount * 100);
         var raw = string.Concat(
             siteCode, amountCents, merchantRef, customerRef,
             isRtc.ToString().ToLowerInvariant(), notifyUrl,
@@ -120,5 +119,5 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
 
     // Bank ref: alphanumeric + spaces + dashes only, max 20 chars
     private static string SanitiseBankRef(string input) =>
-        new string(input.Where(c => char.IsLetterOrDigit(c) || c == ' ' || c == '-').ToArray())[..Math.Min(input.Length, 20)];
+        new string(input.Where(c => char.IsLetterOrDigit(c) || c == ' ' || c == '-').Take(20).ToArray());
 }
