@@ -73,7 +73,7 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
         }
 
         var url = urlProp.GetString();
-        logger.LogInformation("Ozow payment created. Ref={Ref} Url={Url}", dealReference, url);
+        logger.LogInformation("Ozow payment created. Ref={Ref} Url={Url} Raw={Raw}", dealReference, url, raw);
         return url;
     }
 
