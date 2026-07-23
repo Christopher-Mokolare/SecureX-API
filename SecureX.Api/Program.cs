@@ -81,6 +81,7 @@ builder.Services.AddScoped<OzowPayoutService>();
 builder.Services.AddScoped<TransactionService>();
 builder.Services.AddHostedService<ReconciliationService>();
 builder.Services.AddHostedService<OzowPayoutPollerService>();
+builder.Services.AddHostedService<InspectionWindowExpiryService>();
 builder.Services.AddHttpClient("OzowPayout");
 builder.Services.AddHttpClient("OzowCollection");
 

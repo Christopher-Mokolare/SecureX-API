@@ -58,10 +58,11 @@ public class UsersController(AppDbContext db, IHttpClientFactory httpFactory, IC
     }
 
     // ── GET /api/users/banks — proxy to Ozow available banks ────────────────
+    // Maps Ozow field names (bankGroupName, universalBranchCode) to FE-expected names
     [HttpGet("banks")]
     public async Task<IActionResult> GetBanks()
     {
-        var baseUrl = config["Ozow:PayoutBaseUrl"] ?? "https://stagingpayoutsapi.ozow.com/v1";
+        var baseUrl  = config["Ozow:PayoutBaseUrl"] ?? "https://stagingpayoutsapi.ozow.com/v1";
         var siteCode = config["Ozow:SiteCode"]!;
         var apiKey   = config["Ozow:PayoutApiKey"]!;
 
@@ -76,6 +77,14 @@ public class UsersController(AppDbContext db, IHttpClientFactory httpFactory, IC
         if (!res.IsSuccessStatusCode)
             return StatusCode((int)res.StatusCode, new ErrorResponse { Error = $"Ozow banks fetch failed: {raw}" });
 
-        return Content(raw, "application/json");
+        using var doc = System.Text.Json.JsonDocument.Parse(raw);
+        var mapped = doc.RootElement.EnumerateArray().Select(b => new
+        {
+            bankGroupId = b.GetProperty("bankGroupId").GetString(),
+            bankName    = b.GetProperty("bankGroupName").GetString(),
+            branchCode  = b.GetProperty("universalBranchCode").GetString(),
+        });
+
+        return Ok(mapped);
     }
 }
