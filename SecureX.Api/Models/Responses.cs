@@ -6,15 +6,10 @@ namespace SecureX.Api.Models;
 
 public class PayoutVerifyResponse
 {
-    [JsonPropertyName("payoutId")]
     public string PayoutId { get; set; } = "";
-    [JsonPropertyName("isVerified")]
     public bool IsVerified { get; set; }
-    [JsonPropertyName("accountNumberDecryptionKey")]
     public string AccountNumberDecryptionKey { get; set; } = "";
-    [JsonPropertyName("reason")]
     public string Reason { get; set; } = "";
-
 }
 
 // ── Ozow notification ────────────────────────────────────────────────────────
