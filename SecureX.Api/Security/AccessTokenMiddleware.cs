@@ -10,7 +10,9 @@ public class AccessTokenMiddleware(RequestDelegate next, IConfiguration config, 
     {
         // Guard payout webhooks — payment-notification uses hash verification instead
         if (ctx.Request.Path.StartsWithSegments("/securex") &&
-            !ctx.Request.Path.StartsWithSegments("/securex/payment-notification"))
+            !ctx.Request.Path.StartsWithSegments("/securex/payment-notification") &&
+            !ctx.Request.Path.StartsWithSegments("/securex/payout-verify") &&
+            !ctx.Request.Path.StartsWithSegments("/securex/payout-notification"))
         {
             var received = ctx.Request.Headers["AccessToken"].FirstOrDefault()
                         ?? ctx.Request.Headers["Authorization"].FirstOrDefault();
