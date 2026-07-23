@@ -4,7 +4,7 @@ using SecureX.Api.Models;
 
 namespace SecureX.Api.Services;
 
-public class TransactionService(AppDbContext db, DealReferenceService refService, OzowPayoutService payoutService, IConfiguration config, ILogger<TransactionService> logger)
+public class TransactionService(AppDbContext db, DealReferenceService refService, OzowPayoutService payoutService, IConfiguration config, ILogger<TransactionService> logger, IServiceScopeFactory scopeFactory)
 {
     // ── Fee calculation (matches frontend js/script.js) ──────────────────────
     // Standard:         max(value * 2.5%, R150)
@@ -207,7 +207,12 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
         {
             logger.LogInformation("TriggerPayout: starting for {Ref} seller={SellerId}", tx.DealReference, tx.SellerId);
 
-            var seller = tx.Seller ?? await db.Users.FindAsync(tx.SellerId);
+            // Fire-and-forget runs after the HTTP request scope is disposed.
+            // Create a fresh scope so we get a live DbContext.
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var freshDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var seller = await freshDb.Users.FindAsync(tx.SellerId);
             if (seller is null)
             {
                 logger.LogError("TriggerPayout: seller {SellerId} not found for {Ref}", tx.SellerId, tx.DealReference);
@@ -230,7 +235,7 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
                 payoutAmount, seller.BankGroupId, notifyUrl);
 
             seller.BankVerificationStatus = KycStatus.Approved;
-            await db.SaveChangesAsync();
+            await freshDb.SaveChangesAsync();
 
             var payoutId = await payoutService.RequestPayoutAsync(
                 tx.DealReference, payoutAmount,
