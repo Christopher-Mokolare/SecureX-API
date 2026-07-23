@@ -1,6 +1,8 @@
+using Microsoft.Extensions.Logging;
+
 namespace SecureX.Api.Security;
 
-public class AccessTokenMiddleware(RequestDelegate next, IConfiguration config)
+public class AccessTokenMiddleware(RequestDelegate next, IConfiguration config, ILogger<AccessTokenMiddleware> logger)
 {
     private readonly string _expected = (config["Ozow:AccessToken"] ?? "").Trim();
 
@@ -19,6 +21,8 @@ public class AccessTokenMiddleware(RequestDelegate next, IConfiguration config)
 
             if (string.IsNullOrEmpty(_expected) || token != _expected)
             {
+                logger.LogWarning("AccessToken rejected on {Path}. Received='{Received}' Expected='{Expected}'",
+                    ctx.Request.Path, token ?? "(null)", _expected);
                 ctx.Response.StatusCode = 401;
                 await ctx.Response.WriteAsJsonAsync(new { error = "Unauthorized" });
                 return;

@@ -234,9 +234,6 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
             logger.LogInformation("TriggerPayout: dispatching R{Amount} to bank={BankGroupId} notifyUrl={NotifyUrl}",
                 payoutAmount, seller.BankGroupId, notifyUrl);
 
-            seller.BankVerificationStatus = KycStatus.Approved;
-            await freshDb.SaveChangesAsync();
-
             var payoutId = await payoutService.RequestPayoutAsync(
                 tx.DealReference, payoutAmount,
                 seller.BankGroupId, seller.BankAccountNumber,
