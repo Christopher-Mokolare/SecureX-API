@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace SecureX.Api.Models;
 
 // ── Ozow collection payment notification (form POST from Ozow) ──────────────
@@ -17,45 +19,42 @@ public class OzowPaymentNotification
 
 public class BankingDetails
 {
-    public string BankGroupId { get; set; } = "";
-    public string AccountNumber { get; set; } = "";
-    public string BranchCode { get; set; } = "";
+    [JsonPropertyName("bankGroupId")] public string BankGroupId { get; set; } = "";
+    [JsonPropertyName("accountNumber")] public string AccountNumber { get; set; } = "";
+    [JsonPropertyName("branchCode")] public string BranchCode { get; set; } = "";
 }
 
 public class PayoutVerifyRequest
 {
-    public string PayoutId { get; set; } = "";
-    public string SiteCode { get; set; } = "";
-    public decimal Amount { get; set; }
-    public string MerchantReference { get; set; } = "";
-    public string CustomerBankReference { get; set; } = "";
-    public bool IsRtc { get; set; }
-    public string NotifyUrl { get; set; } = "";
-    public BankingDetails? BankingDetails { get; set; }
-    public string HashCheck { get; set; } = "";
+    [JsonPropertyName("payoutId")] public string PayoutId { get; set; } = "";
+    [JsonPropertyName("siteCode")] public string SiteCode { get; set; } = "";
+    [JsonPropertyName("amount")] public decimal Amount { get; set; }
+    [JsonPropertyName("merchantReference")] public string MerchantReference { get; set; } = "";
+    [JsonPropertyName("customerBankReference")] public string CustomerBankReference { get; set; } = "";
+    [JsonPropertyName("isRtc")] public bool IsRtc { get; set; }
+    [JsonPropertyName("notifyUrl")] public string NotifyUrl { get; set; } = "";
+    [JsonPropertyName("bankingDetails")] public BankingDetails? BankingDetails { get; set; }
+    [JsonPropertyName("hashCheck")] public string HashCheck { get; set; } = "";
 }
 
 // ── Ozow notification webhook ────────────────────────────────────────────────
 
 public class PayoutStatusNested
 {
-    public int Status { get; set; }
-    public int SubStatus { get; set; }
+    [JsonPropertyName("status")] public int Status { get; set; }
+    [JsonPropertyName("subStatus")] public int SubStatus { get; set; }
 }
 
 public class PayoutNotificationRequest
 {
-    public string PayoutId { get; set; } = "";
-    public string SiteCode { get; set; } = "";
-    public string MerchantReference { get; set; } = "";
-    public string CustomerMerchantReference { get; set; } = "";
-
-    // Ozow sends either flat ints or a nested object
-    public object? PayoutStatus { get; set; }
-    public int? PayoutSubStatus { get; set; }
-    public int? SubStatus { get; set; }
-
-    public string HashCheck { get; set; } = "";
+    [JsonPropertyName("payoutId")] public string PayoutId { get; set; } = "";
+    [JsonPropertyName("siteCode")] public string SiteCode { get; set; } = "";
+    [JsonPropertyName("merchantReference")] public string MerchantReference { get; set; } = "";
+    [JsonPropertyName("customerMerchantReference")] public string CustomerMerchantReference { get; set; } = "";
+    [JsonPropertyName("payoutStatus")] public object? PayoutStatus { get; set; }
+    [JsonPropertyName("payoutSubStatus")] public int? PayoutSubStatus { get; set; }
+    [JsonPropertyName("subStatus")] public int? SubStatus { get; set; }
+    [JsonPropertyName("hashCheck")] public string HashCheck { get; set; } = "";
 }
 
 // ── User endpoints ───────────────────────────────────────────────────────────

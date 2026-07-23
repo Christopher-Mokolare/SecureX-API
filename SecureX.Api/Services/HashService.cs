@@ -27,7 +27,7 @@ public class HashService
     {
         var cents = (long)Math.Round(req.Amount * 100);
         var input = string.Concat(
-            req.PayoutId, req.SiteCode, cents,
+            req.SiteCode, cents,
             req.MerchantReference, req.CustomerBankReference,
             req.IsRtc.ToString().ToLowerInvariant(), req.NotifyUrl,
             req.BankingDetails?.BankGroupId, req.BankingDetails?.AccountNumber,
