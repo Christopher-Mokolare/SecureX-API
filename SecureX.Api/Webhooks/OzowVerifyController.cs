@@ -10,11 +10,11 @@ public class OzowVerifyController(HashService hash, IConfiguration config) : Con
     [HttpPost("/securex/payout-verify")]
     public IActionResult Verify([FromBody] PayoutVerifyRequest req)
     {
-        var apiKey = config["Ozow:ApiKey"];
+        var apiKey = config["Ozow:PayoutApiKey"];
         var decryptionKey = config["Ozow:AccountNumberDecryptionKey"];
 
         if (string.IsNullOrEmpty(apiKey))
-            return StatusCode(500, new ErrorResponse { Error = "Server misconfigured: missing OZOW_API_KEY" });
+            return StatusCode(500, new ErrorResponse { Error = "Server misconfigured: missing OZOW_PAYOUT_API_KEY" });
 
         if (string.IsNullOrEmpty(decryptionKey))
             return StatusCode(500, new ErrorResponse { Error = "Server misconfigured: missing OZOW_ACCOUNT_NUMBER_DECRYPTION_KEY" });
