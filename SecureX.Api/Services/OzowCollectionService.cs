@@ -16,7 +16,7 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
     private string PrivateKey => config["Ozow:PrivateKey"]!;
     private string ApiKey     => config["Ozow:ApiKey"]!;
     private string NotifyUrl  => config["Ozow:CollectionNotifyUrl"]!;
-    private string ReturnUrl  => config["Ozow:ReturnUrl"] ?? "http://securex-alb-1751040376.af-south-1.elb.amazonaws.com/payment-return";
+    private string ReturnUrl  => config["Ozow:ReturnUrl"] ?? "https://secureexchange.co.za/payment-return";
 
     private string BankRefPrefix => config["Ozow:BankRefPrefix"] ?? "";
 
@@ -24,7 +24,7 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
     {
         var amount   = totalAmount.ToString("F2");
         var bankRef  = SanitiseRef(BankRefPrefix + dealReference);
-        var isTest   = "true";
+        var isTest   = config["Ozow:IsTest"] ?? "true";
         var opt      = "";
 
         var hash = BuildHash(SiteCode, "ZA", "ZAR", amount, dealReference, bankRef,

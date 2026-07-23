@@ -11,6 +11,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<WebhookEvent> WebhookEvents => Set<WebhookEvent>();
     public DbSet<PayoutNotification> PayoutNotifications => Set<PayoutNotification>();
     public DbSet<ReconciliationReport> ReconciliationReports => Set<ReconciliationReport>();
+    public DbSet<PendingPayout> PendingPayouts => Set<PendingPayout>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -102,6 +103,18 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.OzowFloat).HasColumnName("ozow_float").HasColumnType("numeric(14,2)");
             e.Property(x => x.Discrepancy).HasColumnName("discrepancy").HasColumnType("numeric(14,2)");
             e.Property(x => x.AlertFired).HasColumnName("alert_fired");
+        });
+
+        b.Entity<PendingPayout>(e =>
+        {
+            e.ToTable("pending_payouts");
+            e.HasKey(x => x.PayoutId);
+            e.Property(x => x.PayoutId).HasColumnName("payout_id");
+            e.Property(x => x.DealReference).HasColumnName("deal_reference");
+            e.Property(x => x.Resolved).HasColumnName("resolved");
+            e.Property(x => x.SubmittedAt).HasColumnName("submitted_at");
+            e.Property(x => x.ResolvedAt).HasColumnName("resolved_at");
+            e.HasIndex(x => x.Resolved).HasDatabaseName("idx_pending_payouts_resolved");
         });
     }
 }

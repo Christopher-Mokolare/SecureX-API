@@ -242,7 +242,15 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
             if (payoutId is null)
                 logger.LogError("TriggerPayout: Ozow rejected payout for {Ref}", tx.DealReference);
             else
+            {
                 logger.LogInformation("TriggerPayout: success PayoutId={PayoutId} Ref={Ref}", payoutId, tx.DealReference);
+                freshDb.PendingPayouts.Add(new PendingPayout
+                {
+                    PayoutId = payoutId,
+                    DealReference = tx.DealReference,
+                });
+                await freshDb.SaveChangesAsync();
+            }
         }
         catch (Exception ex)
         {

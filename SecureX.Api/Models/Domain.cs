@@ -102,3 +102,13 @@ public class ReconciliationReport
     public decimal Discrepancy { get; set; }
     public bool AlertFired { get; set; }
 }
+
+// Tracks submitted payouts so the poller can check status if no webhook arrives
+public class PendingPayout
+{
+    public string PayoutId { get; set; } = "";          // PK — Ozow's UUID
+    public string DealReference { get; set; } = "";
+    public bool Resolved { get; set; }
+    public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? ResolvedAt { get; set; }
+}
