@@ -47,7 +47,6 @@ public class OzowVerifyController(HashService hash, IConfiguration config) : Con
         if (string.IsNullOrEmpty(req.SiteCode)) return "Missing field: siteCode";
         if (string.IsNullOrEmpty(req.MerchantReference)) return "Missing field: merchantReference";
         if (string.IsNullOrEmpty(req.CustomerBankReference)) return "Missing field: customerBankReference";
-        if (string.IsNullOrEmpty(req.NotifyUrl)) return "Missing field: notifyUrl";
         if (req.BankingDetails is null) return "Missing field: bankingDetails";
         if (string.IsNullOrEmpty(req.BankingDetails.BankGroupId)) return "Missing field: bankingDetails.bankGroupId";
         if (string.IsNullOrEmpty(req.BankingDetails.AccountNumber)) return "Missing field: bankingDetails.accountNumber";

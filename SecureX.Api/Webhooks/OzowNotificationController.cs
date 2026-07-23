@@ -14,9 +14,9 @@ public class OzowNotificationController(HashService hash, AppDbContext db,
     [HttpPost("/securex/payout-notification")]
     public async Task<IActionResult> Notify([FromBody] PayoutNotificationRequest req)
     {
-        var apiKey = config["Ozow:ApiKey"];
+        var apiKey = config["Ozow:PayoutApiKey"];
         if (string.IsNullOrEmpty(apiKey))
-            return StatusCode(500, new ErrorResponse { Error = "Server misconfigured: missing OZOW_API_KEY" });
+            return StatusCode(500, new ErrorResponse { Error = "Server misconfigured: missing OZOW_PAYOUT_API_KEY" });
 
         var missing = ValidateRequired(req);
         if (missing is not null)

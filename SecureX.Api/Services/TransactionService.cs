@@ -203,36 +203,49 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
 
     private async Task TriggerPayoutAsync(Transaction tx)
     {
-        var seller = tx.Seller ?? await db.Users.FindAsync(tx.SellerId);
-        if (seller is null)
+        try
         {
-            logger.LogError("TriggerPayout: seller {SellerId} not found for {Ref}", tx.SellerId, tx.DealReference);
-            return;
-        }
+            logger.LogInformation("TriggerPayout: starting for {Ref} seller={SellerId}", tx.DealReference, tx.SellerId);
 
-        if (string.IsNullOrWhiteSpace(seller.BankAccountNumber) ||
-            string.IsNullOrWhiteSpace(seller.BankBranchCode))
+            var seller = tx.Seller ?? await db.Users.FindAsync(tx.SellerId);
+            if (seller is null)
+            {
+                logger.LogError("TriggerPayout: seller {SellerId} not found for {Ref}", tx.SellerId, tx.DealReference);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(seller.BankAccountNumber) ||
+                string.IsNullOrWhiteSpace(seller.BankBranchCode))
+            {
+                logger.LogWarning("TriggerPayout: seller {SellerId} has no bank details — payout skipped. Account='{Account}' Branch='{Branch}'",
+                    tx.SellerId, seller.BankAccountNumber, seller.BankBranchCode);
+                return;
+            }
+
+            var notifyUrl    = config["Ozow:NotifyUrl"] ?? "";
+            var encKey       = config["Ozow:AccountNumberDecryptionKey"] ?? "";
+            var payoutAmount = tx.ItemValue - tx.SellerFee;
+
+            logger.LogInformation("TriggerPayout: dispatching R{Amount} to bank={BankGroupId} notifyUrl={NotifyUrl}",
+                payoutAmount, seller.BankGroupId, notifyUrl);
+
+            seller.BankVerificationStatus = KycStatus.Approved;
+            await db.SaveChangesAsync();
+
+            var payoutId = await payoutService.RequestPayoutAsync(
+                tx.DealReference, payoutAmount,
+                seller.BankGroupId, seller.BankAccountNumber,
+                seller.BankBranchCode, encKey, notifyUrl);
+
+            if (payoutId is null)
+                logger.LogError("TriggerPayout: Ozow rejected payout for {Ref}", tx.DealReference);
+            else
+                logger.LogInformation("TriggerPayout: success PayoutId={PayoutId} Ref={Ref}", payoutId, tx.DealReference);
+        }
+        catch (Exception ex)
         {
-            logger.LogWarning("TriggerPayout: seller {SellerId} has no bank details — payout skipped", tx.SellerId);
-            return;
+            logger.LogError(ex, "TriggerPayout: unhandled exception for {Ref}", tx.DealReference);
         }
-
-        var notifyUrl  = config["Ozow:NotifyUrl"]!;
-        var encKey     = config["Ozow:AccountNumberDecryptionKey"]!;
-        var payoutAmount = tx.ItemValue - tx.SellerFee;
-
-        var bankGroupId = seller.BankGroupId;
-
-        seller.BankVerificationStatus = KycStatus.Approved;
-        await db.SaveChangesAsync();
-
-        var payoutId = await payoutService.RequestPayoutAsync(
-            tx.DealReference, payoutAmount,
-            bankGroupId, seller.BankAccountNumber,
-            seller.BankBranchCode, encKey, notifyUrl);
-
-        if (payoutId is null)
-            logger.LogError("TriggerPayout: Ozow rejected payout for {Ref}", tx.DealReference);
     }
 
     private static void AppendAudit(Transaction tx, TransactionStatus? prev,
