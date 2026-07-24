@@ -24,21 +24,13 @@ public class OzowVerifyController(HashService hash, IConfiguration config, ILogg
         if (missing is not null)
             return Ok(Reject(req.PayoutId, missing));
 
-        // Log full request so we can verify the hash formula against what Ozow sends
-        var cents = (long)Math.Round(req.Amount * 100);
-        logger.LogInformation(
-            "PayoutVerify: payoutId={PayoutId} siteCode={SiteCode} amount={Amount} cents={Cents} " +
-            "merchantRef={MerchantRef} customerBankRef={CustomerBankRef} isRtc={IsRtc} notifyUrl={NotifyUrl} " +
-            "bankGroupId={BankGroupId} accountNumber={AccountNumber} branchCode={BranchCode} hashCheck={HashCheck}",
-            req.PayoutId, req.SiteCode, req.Amount, cents,
-            req.MerchantReference, req.CustomerBankReference, req.IsRtc, req.NotifyUrl,
-            req.BankingDetails?.BankGroupId, req.BankingDetails?.AccountNumber,
-            req.BankingDetails?.BranchCode, req.HashCheck);
+        if (!hash.VerifyPayoutHash(req, apiKey))
+        {
+            logger.LogWarning("PayoutVerify: hash mismatch for payoutId={PayoutId}", req.PayoutId);
+            return Ok(Reject(req.PayoutId, "Invalid hash check"));
+        }
 
-        var hashValid = hash.VerifyPayoutHash(req, apiKey);
-        if (!hashValid)
-            logger.LogWarning("PayoutVerify: hash mismatch for payoutId={PayoutId} — proceeding anyway (staging)", req.PayoutId);
-
+        logger.LogInformation("PayoutVerify: verified payoutId={PayoutId}", req.PayoutId);
         return Ok(new PayoutVerifyResponse
         {
             PayoutId = req.PayoutId,
