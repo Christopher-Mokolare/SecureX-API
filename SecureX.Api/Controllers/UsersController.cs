@@ -83,7 +83,7 @@ public class UsersController(AppDbContext db, IHttpClientFactory httpFactory, IC
             bankGroupId = b.GetProperty("bankGroupId").GetString(),
             bankName    = b.GetProperty("bankGroupName").GetString(),
             branchCode  = b.GetProperty("universalBranchCode").GetString(),
-        });
+        }).ToList();
 
         return Ok(mapped);
     }

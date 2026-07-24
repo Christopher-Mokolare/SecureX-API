@@ -65,7 +65,14 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
         }
 
         var doc = JsonDocument.Parse(raw);
-        var payoutId = doc.RootElement.GetProperty("payoutId").GetString();
+        var payoutId = doc.RootElement.TryGetProperty("payoutId", out var pid) ? pid.GetString() : null;
+
+        if (string.IsNullOrEmpty(payoutId))
+        {
+            logger.LogError("Ozow requestpayout returned empty payoutId. Ref={Ref} Body={Body}", merchantReference, raw);
+            return null;
+        }
+
         logger.LogInformation("Ozow payout submitted. PayoutId={PayoutId} Ref={Ref}", payoutId, merchantReference);
         return payoutId;
     }
