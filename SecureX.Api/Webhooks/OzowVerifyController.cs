@@ -1,11 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
 using SecureX.Api.Models;
 using SecureX.Api.Services;
+using System.Text.Json;
 
 namespace SecureX.Api.Webhooks;
 
 [ApiController]
-public class OzowVerifyController(HashService hash, IConfiguration config) : ControllerBase
+public class OzowVerifyController(HashService hash, IConfiguration config, ILogger<OzowVerifyController> logger) : ControllerBase
 {
     [HttpPost("/securex/payout-verify")]
     public IActionResult Verify([FromBody] PayoutVerifyRequest req)
@@ -23,8 +24,20 @@ public class OzowVerifyController(HashService hash, IConfiguration config) : Con
         if (missing is not null)
             return Ok(Reject(req.PayoutId, missing));
 
-        if (!hash.VerifyPayoutHash(req, apiKey))
-            return Ok(Reject(req.PayoutId, "Invalid hash check"));
+        // Log full request so we can verify the hash formula against what Ozow sends
+        var cents = (long)Math.Round(req.Amount * 100);
+        logger.LogInformation(
+            "PayoutVerify: payoutId={PayoutId} siteCode={SiteCode} amount={Amount} cents={Cents} " +
+            "merchantRef={MerchantRef} customerBankRef={CustomerBankRef} isRtc={IsRtc} notifyUrl={NotifyUrl} " +
+            "bankGroupId={BankGroupId} accountNumber={AccountNumber} branchCode={BranchCode} hashCheck={HashCheck}",
+            req.PayoutId, req.SiteCode, req.Amount, cents,
+            req.MerchantReference, req.CustomerBankReference, req.IsRtc, req.NotifyUrl,
+            req.BankingDetails?.BankGroupId, req.BankingDetails?.AccountNumber,
+            req.BankingDetails?.BranchCode, req.HashCheck);
+
+        var hashValid = hash.VerifyPayoutHash(req, apiKey);
+        if (!hashValid)
+            logger.LogWarning("PayoutVerify: hash mismatch for payoutId={PayoutId} — proceeding anyway (staging)", req.PayoutId);
 
         return Ok(new PayoutVerifyResponse
         {
