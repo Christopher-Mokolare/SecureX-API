@@ -9,7 +9,7 @@ namespace SecureX.Api.Webhooks;
 
 [ApiController]
 public class OzowNotificationController(HashService hash, AppDbContext db,
-    TransactionService txService, IConfiguration config) : ControllerBase
+    TransactionService txService, IConfiguration config, ILogger<OzowNotificationController> logger) : ControllerBase
 {
     [HttpPost("/securex/payout-notification")]
     public async Task<IActionResult> Notify([FromBody] PayoutNotificationRequest req)
@@ -63,9 +63,15 @@ public class OzowNotificationController(HashService hash, AppDbContext db,
         });
         await db.SaveChangesAsync();
 
-        // Only advance to Completed when Ozow confirms PayoutComplete (status 5)
-        if (!duplicate && status == 5 && !string.IsNullOrEmpty(req.MerchantReference))
-            await txService.HandlePayoutCompleteAsync(req.MerchantReference, req.PayoutId);
+        // Handle terminal statuses
+        if (!duplicate)
+        {
+            if (status == 5 && !string.IsNullOrEmpty(req.MerchantReference))
+                await txService.HandlePayoutCompleteAsync(req.MerchantReference, req.PayoutId);
+            else if (status is 99 or 4 or 90)
+                logger.LogWarning("PayoutNotification: terminal non-complete. PayoutId={PayoutId} status={Status} subStatus={SubStatus} Ref={Ref}",
+                    req.PayoutId, status, subStatus, req.MerchantReference);
+        }
 
         return Ok(new PayoutNotificationResponse
         {

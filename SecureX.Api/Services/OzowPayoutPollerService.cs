@@ -93,6 +93,9 @@ public class OzowPayoutPollerService(IServiceScopeFactory scopeFactory, IConfigu
 
                 if (status == 5) // PayoutComplete
                     await txService.HandlePayoutCompleteAsync(pending.DealReference, pending.PayoutId);
+                else if (TerminalStatuses.Contains(status))
+                    logger.LogWarning("PayoutPoller: payout terminal non-complete. PayoutId={PayoutId} status={Status} subStatus={SubStatus} Ref={Ref}",
+                        pending.PayoutId, status, subStatus, pending.DealReference);
 
                 if (TerminalStatuses.Contains(status))
                 {
