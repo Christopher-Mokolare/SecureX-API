@@ -128,6 +128,12 @@ builder.Services.AddCors(opt => opt.AddDefaultPolicy(p =>
 var app = builder.Build();
 
 // ── Middleware ────────────────────────────────────────────────────────────────
+// Strip Expect: 100-continue — Ozow sends this on webhook POSTs; Kestrel returns 417 otherwise
+app.Use(async (ctx, next) =>
+{
+    ctx.Request.Headers.Remove("Expect");
+    await next();
+});
 app.UseMiddleware<AccessTokenMiddleware>();
 app.UseCors();
 app.UseAuthentication();
