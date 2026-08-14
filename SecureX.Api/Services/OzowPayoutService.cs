@@ -29,11 +29,12 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
         var baseUrl   = config["Ozow:PayoutBaseUrl"] ?? "https://stagingpayoutsapi.ozow.com/v1";
 
         var amountCents = (long)Math.Round(amountZar * 100);
+        var isRtc = bool.TryParse(config["Ozow:PayoutIsRtc"], out var rtc) && rtc;
         var encryptedAccount = EncryptAccountNumber(plainAccountNumber, merchantReference, amountCents, encryptionKey);
         var customerRef = SanitiseBankRef(merchantReference);
 
         var hash = BuildHash(siteCode, amountCents, merchantReference, customerRef,
-            true, notifyUrl, bankGroupId, encryptedAccount, branchCode, apiKey);
+            isRtc, notifyUrl, bankGroupId, encryptedAccount, branchCode, apiKey);
 
         var body = new
         {
@@ -41,7 +42,7 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
             amount        = amountZar,
             merchantReference,
             customerBankReference = customerRef,
-            isRtc         = true,
+            isRtc,
             notifyUrl,
             bankingDetails = new { bankGroupId, accountNumber = encryptedAccount, branchCode },
             hashCheck     = hash,
