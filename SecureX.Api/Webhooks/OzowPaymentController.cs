@@ -5,6 +5,7 @@ using System.Text.Json;
 namespace SecureX.Api.Webhooks;
 
 [ApiController]
+[IgnoreAntiforgeryToken]
 public class OzowPaymentController(
     TransactionService txService,
     HashService hash,

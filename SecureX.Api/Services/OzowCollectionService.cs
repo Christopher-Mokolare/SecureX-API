@@ -78,7 +78,9 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
             logger.LogError("Ozow returned null url. Raw={Raw}", raw);
             return null;
         }
-        logger.LogInformation("Ozow payment created. Ref={Ref} Url={Url}", dealReference, url);
+        logger.LogInformation("Ozow payment created. Ref={Ref} Url={Url}",
+            dealReference.Replace("\n", "").Replace("\r", ""),
+            url.Replace("\n", "").Replace("\r", ""));
         return url;
     }
 

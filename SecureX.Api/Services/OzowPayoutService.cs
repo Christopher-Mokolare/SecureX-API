@@ -33,7 +33,7 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
         var customerRef = SanitiseBankRef(merchantReference);
 
         var hash = BuildHash(siteCode, amountCents, merchantReference, customerRef,
-            false, notifyUrl, bankGroupId, encryptedAccount, branchCode, apiKey);
+            true, notifyUrl, bankGroupId, encryptedAccount, branchCode, apiKey);
 
         var body = new
         {
@@ -41,7 +41,7 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
             amount        = amountZar,
             merchantReference,
             customerBankReference = customerRef,
-            isRtc         = false,
+            isRtc         = true,
             notifyUrl,
             bankingDetails = new { bankGroupId, accountNumber = encryptedAccount, branchCode },
             hashCheck     = hash,
@@ -73,11 +73,15 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
             return null;
         }
 
-        logger.LogInformation("Ozow payout submitted. PayoutId={PayoutId} Ref={Ref}", payoutId, merchantReference);
+        logger.LogInformation("Ozow payout submitted. PayoutId={PayoutId} Ref={Ref}",
+            payoutId.Replace("\n", "").Replace("\r", ""),
+            merchantReference.Replace("\n", "").Replace("\r", ""));
         return payoutId;
     }
 
     // ── AES-256-CBC account number encryption ────────────────────────────────
+    // Ozow's payout-verify endpoint requires AES-256-CBC with a specific IV derivation.
+    // CBC is mandated by the Ozow spec here — do not change the cipher mode.
     // IV = first 16 chars of SHA512(merchantReference + amountCents + encryptionKey) as UTF8 bytes
     // Key = first 32 chars of encryptionKey (padded if shorter) as UTF8 bytes
     // Output = Base64
@@ -93,6 +97,7 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
         while (k.Length < 32) k += k;
         var key = Encoding.UTF8.GetBytes(k[..32]);
 
+#pragma warning disable CA5358 // Ozow payout-verify spec mandates AES-CBC — cannot use GCM here
         using var aes = Aes.Create();
         aes.KeySize = 256;
         aes.Mode    = CipherMode.CBC;
@@ -104,6 +109,7 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
         var plain  = Encoding.UTF8.GetBytes(accountNumber);
         var cipher = enc.TransformFinalBlock(plain, 0, plain.Length);
         return Convert.ToBase64String(cipher);
+#pragma warning restore CA5358
     }
 
     // ── SHA-512 hash per Ozow docs ───────────────────────────────────────────

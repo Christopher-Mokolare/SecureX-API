@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Ozow Payouts Integration Test Cases
 # Covers all 11 cases required for Ozow technical sign-off
 #
@@ -20,7 +20,7 @@ PAYOUT_API_KEY="${OZOW_PAYOUT_API_KEY:-}"
 FNB_BANK_ID="4816019c-3314-4c80-8b6b-b2cd16dcc4ec"
 FNB_BRANCH="250655"
 VALID_ACCOUNT="62000000000"
-INVALID_ACCOUNT="12345678"   # fails CDV check
+INVALID_ACCOUNT="12345678"
 
 PGHOST="securex-db.chiwk8mqor05.af-south-1.rds.amazonaws.com"
 PGUSER="securex"
@@ -50,7 +50,6 @@ get_token() {
     -d '{"email":"test@secureexchange.co.za"}' | jq -r '.token'
 }
 
-# Create a transaction, bypass payment, deliver, and return TX_ID + DEAL_REF + SELLER_ID
 create_ready_transaction() {
   local amount=$1
   local token=$2
@@ -86,7 +85,6 @@ create_ready_transaction() {
     return
   fi
 
-  # Save bank details
   curl -s -X POST "$API_BASE/api/users/$seller_id/bank-details" \
     -H "Authorization: Bearer $token" \
     -H "Content-Type: application/json" \
@@ -97,17 +95,14 @@ create_ready_transaction() {
       \"idNumber\": \"8001015009087\"
     }" > /dev/null
 
-  # Bypass payment → FundsSecured
   psql -h "$PGHOST" -p 5432 -U "$PGUSER" -d "$PGDB" --set=sslmode=require -q \
     -c "UPDATE transactions SET status = 'FundsSecured', version = version + 1, updated_at = NOW() WHERE \"Id\" = '$tx_id';" 2>/dev/null
 
-  # Start logistics
   curl -s -X POST "$API_BASE/api/transactions/$tx_id/start-logistics" \
     -H "Authorization: Bearer $token" \
     -H "Content-Type: application/json" \
     -d '{"actor":"seller","expectedVersion":2}' > /dev/null
 
-  # Mark delivered
   local delivered_resp
   delivered_resp=$(curl -s -X POST "$API_BASE/api/transactions/$tx_id/mark-delivered" \
     -H "Authorization: Bearer $token" \
@@ -120,33 +115,26 @@ create_ready_transaction() {
 }
 
 ozow_get() {
-  local path=$1
   curl -s -H "SiteCode: $SITE_CODE" -H "ApiKey: $PAYOUT_API_KEY" \
-    "$PAYOUT_BASE/$path"
+    "$PAYOUT_BASE/$1"
 }
 
 ozow_post() {
-  local path=$1
-  local body=$2
   curl -s -X POST \
     -H "SiteCode: $SITE_CODE" -H "ApiKey: $PAYOUT_API_KEY" \
     -H "Content-Type: application/json" \
-    -d "$body" \
-    "$PAYOUT_BASE/$path"
+    -d "$2" "$PAYOUT_BASE/$1"
 }
 
 ozow_mock_post() {
-  local path=$1
-  local body=$2
   curl -s -X POST \
     -H "SiteCode: $SITE_CODE" -H "ApiKey: $PAYOUT_API_KEY" \
     -H "Content-Type: application/json" \
-    -d "$body" \
-    "$MOCK_BASE/$path"
+    -d "$2" "$MOCK_BASE/$1"
 }
 
 set_test_config() {
-  local field=$1   # e.g. isAccountDecryptionFailed
+  local field=$1
   local body
   body=$(cat <<EOF
 {
@@ -161,13 +149,11 @@ set_test_config() {
 }
 EOF
 )
-  # Patch the specific field to true
   body=$(echo "$body" | jq ".$field = true")
   curl -s -X POST \
     -H "SiteCode: $SITE_CODE" -H "ApiKey: $PAYOUT_API_KEY" \
     -H "Content-Type: application/json" \
-    -d "$body" \
-    "$PAYOUT_BASE/settestconfiguration"
+    -d "$body" "$PAYOUT_BASE/settestconfiguration"
 }
 
 reset_test_config() {
@@ -183,8 +169,7 @@ reset_test_config() {
       \"isNotVerifiedResponse\": false,
       \"isAccountNumberDecryptionKeyMissing\": false,
       \"hasRetriedCountBeenExceeded\": false
-    }" \
-    "$PAYOUT_BASE/settestconfiguration" > /dev/null
+    }" "$PAYOUT_BASE/settestconfiguration" > /dev/null
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -205,22 +190,18 @@ echo "✅ Auth token obtained"
 
 if [ "$MODE" = "all" ] || [ "$MODE" = "live" ]; then
 
-  # ── Case 1: Minimum amount validation (below R1) ──────────────────────────
   section "Case 1: Minimum amount validation (R0.50 — below R1 minimum)"
 
   read -r TX_ID DEAL_REF SELLER_ID VERSION <<< "$(create_ready_transaction 0.50 "$TOKEN")"
 
   if [ -z "$TX_ID" ] || [ "$TX_ID" = "null" ]; then
-    fail "Case 1: Could not create transaction (collection service may be down)"
-    info "Manual alternative: POST to $PAYOUT_BASE/requestpayout with amount=0.50"
-    info "Expected: 400 Bad Request with validation error"
+    fail "Case 1: Could not create transaction"
   else
-    RESP=$(curl -s -X POST "$API_BASE/api/transactions/$TX_ID/accept" \
+    curl -s -X POST "$API_BASE/api/transactions/$TX_ID/accept" \
       -H "Authorization: Bearer $TOKEN" \
       -H "Content-Type: application/json" \
-      -d "{\"actor\":\"buyer\",\"expectedVersion\":$VERSION}")
+      -d "{\"actor\":\"buyer\",\"expectedVersion\":$VERSION}" > /dev/null
 
-    # Check pending_payouts — Ozow should reject with validation error
     sleep 3
     PAYOUT_ID=$(psql -h "$PGHOST" -p 5432 -U "$PGUSER" -d "$PGDB" --set=sslmode=require -t -q \
       -c "SELECT payout_id FROM pending_payouts WHERE deal_reference = '$DEAL_REF' LIMIT 1;" 2>/dev/null | xargs)
@@ -232,7 +213,6 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "live" ]; then
       fail "Case 1: Ozow accepted R0.50 — expected rejection. PayoutId=$PAYOUT_ID"
     fi
 
-    # Also test directly against Ozow API to capture the raw 400 response
     info "Direct Ozow API test for minimum validation:"
     DIRECT_RESP=$(ozow_post "requestpayout" "{
       \"siteCode\": \"$SITE_CODE\",
@@ -249,23 +229,19 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "live" ]; then
       \"hashCheck\": \"dummy\"
     }")
     echo "  Response: $DIRECT_RESP"
-    info "Save this JSON response for Ozow test case form"
   fi
 
-  # ── Case 2: Maximum amount validation (above R20) ─────────────────────────
   section "Case 2: Maximum amount validation (R21 — above R20 maximum)"
 
   read -r TX_ID DEAL_REF SELLER_ID VERSION <<< "$(create_ready_transaction 21 "$TOKEN")"
 
   if [ -z "$TX_ID" ] || [ "$TX_ID" = "null" ]; then
-    fail "Case 2: Could not create transaction (collection service may be down)"
-    info "Manual alternative: POST to $PAYOUT_BASE/requestpayout with amount=21"
-    info "Expected: 400 Bad Request with validation error"
+    fail "Case 2: Could not create transaction"
   else
-    RESP=$(curl -s -X POST "$API_BASE/api/transactions/$TX_ID/accept" \
+    curl -s -X POST "$API_BASE/api/transactions/$TX_ID/accept" \
       -H "Authorization: Bearer $TOKEN" \
       -H "Content-Type: application/json" \
-      -d "{\"actor\":\"buyer\",\"expectedVersion\":$VERSION}")
+      -d "{\"actor\":\"buyer\",\"expectedVersion\":$VERSION}" > /dev/null
 
     sleep 3
     PAYOUT_ID=$(psql -h "$PGHOST" -p 5432 -U "$PGUSER" -d "$PGDB" --set=sslmode=require -t -q \
@@ -294,10 +270,8 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "live" ]; then
       \"hashCheck\": \"dummy\"
     }")
     echo "  Response: $DIRECT_RESP"
-    info "Save this JSON response for Ozow test case form"
   fi
 
-  # ── Cases 3-5: Verify / Complete / Cancelled — from dashboard ────────────
   section "Cases 3-5: Verify / Payout Complete / Payout Cancelled"
   echo ""
   echo "  These require a live payout to be submitted and tracked on the dashboard."
@@ -312,16 +286,13 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "live" ]; then
   echo "  To trigger a cancellation (Case 6 — Payout Cancelled):"
   echo "  Submit a payout and cancel it from the Ozow dashboard before processing."
 
-  # ── Case 7: CDV error — invalid account number ────────────────────────────
   section "Case 7: CDV error — account number validation failure"
 
   read -r TX_ID DEAL_REF SELLER_ID VERSION <<< "$(create_ready_transaction 1 "$TOKEN")"
 
   if [ -z "$TX_ID" ] || [ "$TX_ID" = "null" ]; then
-    fail "Case 7: Could not create transaction (collection service may be down)"
-    info "Manual: save bank details with account=12345678 then trigger payout"
+    fail "Case 7: Could not create transaction"
   else
-    # Override bank details with invalid account number
     curl -s -X POST "$API_BASE/api/users/$SELLER_ID/bank-details" \
       -H "Authorization: Bearer $TOKEN" \
       -H "Content-Type: application/json" \
@@ -332,16 +303,16 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "live" ]; then
         \"idNumber\": \"8001015009087\"
       }" > /dev/null
 
-    RESP=$(curl -s -X POST "$API_BASE/api/transactions/$TX_ID/accept" \
+    curl -s -X POST "$API_BASE/api/transactions/$TX_ID/accept" \
       -H "Authorization: Bearer $TOKEN" \
       -H "Content-Type: application/json" \
-      -d "{\"actor\":\"buyer\",\"expectedVersion\":$VERSION}")
+      -d "{\"actor\":\"buyer\",\"expectedVersion\":$VERSION}" > /dev/null
 
     sleep 5
     CDV_ROW=$(psql -h "$PGHOST" -p 5432 -U "$PGUSER" -d "$PGDB" --set=sslmode=require -t -q \
       -c "SELECT payout_id FROM pending_payouts WHERE deal_reference = '$DEAL_REF' LIMIT 1;" 2>/dev/null | xargs)
 
-    if [ -n "$CDV_ROW" ] && [ "$CDV_ROW" != "" ]; then
+    if [ -n "$CDV_ROW" ]; then
       pass "Case 7: Payout submitted with invalid account — PayoutId=$CDV_ROW"
       info "Check Ozow dashboard for CDV error status (subStatus 9904)"
       info "Deal ref: $DEAL_REF | PayoutId: $CDV_ROW"
@@ -351,10 +322,8 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "live" ]; then
     fi
   fi
 
-  # ── Case 8: Get Payout Status ─────────────────────────────────────────────
   section "Case 8: Get Payout Status (getpayout API)"
 
-  # Use most recent resolved payout from DB
   LATEST_PAYOUT=$(psql -h "$PGHOST" -p 5432 -U "$PGUSER" -d "$PGDB" --set=sslmode=require -t -q \
     -c "SELECT payout_id FROM pending_payouts WHERE resolved = true ORDER BY submitted_at DESC LIMIT 1;" 2>/dev/null | xargs)
 
@@ -384,13 +353,11 @@ fi  # end live cases
 
 if [ "$MODE" = "all" ] || [ "$MODE" = "mock" ]; then
 
-  # Shared mock payout body builder
   mock_payout_body() {
-    local ref="$1"
     echo "{
       \"siteCode\": \"$SITE_CODE\",
       \"amount\": 1.00,
-      \"merchantReference\": \"$ref\",
+      \"merchantReference\": \"$1\",
       \"customerBankReference\": \"MOCKTEST\",
       \"isRtc\": false,
       \"notifyUrl\": \"https://api.secureexchange.co.za/securex/payout-notification\",
@@ -403,82 +370,61 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "mock" ]; then
     }"
   }
 
-  # ── Case 9: IsAccountDecryptionFailed ─────────────────────────────────────
   section "Case 9: Mock — IsAccountDecryptionFailed"
   info "Setting test config: isAccountDecryptionFailed=true"
-
   CONFIG_RESP=$(set_test_config "isAccountDecryptionFailed")
   echo "  SetConfig response: $CONFIG_RESP"
 
-  REF="MOCK-DECFAIL-$(date +%s)"
-  MOCK_RESP=$(ozow_mock_post "requestpayout" "$(mock_payout_body "$REF")")
-  echo ""
-  echo "  ── Mock RequestPayout Response (save for Ozow form) ──"
+  MOCK_RESP=$(ozow_mock_post "requestpayout" "$(mock_payout_body "MOCK-DECFAIL-$(date +%s)")")
+  echo ""; echo "  ── Mock RequestPayout Response ──"
   echo "$MOCK_RESP" | jq . 2>/dev/null || echo "$MOCK_RESP"
 
   MOCK_STATUS=$(echo "$MOCK_RESP" | jq -r '.payoutStatus.status // .status // "unknown"')
   MOCK_SUB=$(echo "$MOCK_RESP" | jq -r '.payoutStatus.subStatus // .subStatus // "unknown"')
 
-  # Expected: status=99, subStatus=205
   if [ "$MOCK_STATUS" = "99" ] && [ "$MOCK_SUB" = "205" ]; then
     pass "Case 9: IsAccountDecryptionFailed — status=99 subStatus=205 ✓"
   else
     info "Case 9: Got status=$MOCK_STATUS subStatus=$MOCK_SUB (expected 99/205)"
-    info "Check if mock endpoint returns status in response or via notification webhook"
   fi
+  reset_test_config; sleep 1
 
-  reset_test_config
-  sleep 1
-
-  # ── Case 10: IsNotVerifiedResponse ────────────────────────────────────────
   section "Case 10: Mock — IsNotVerifiedResponse"
   info "Setting test config: isNotVerifiedResponse=true"
-
   CONFIG_RESP=$(set_test_config "isNotVerifiedResponse")
   echo "  SetConfig response: $CONFIG_RESP"
 
-  REF="MOCK-NOTVER-$(date +%s)"
-  MOCK_RESP=$(ozow_mock_post "requestpayout" "$(mock_payout_body "$REF")")
-  echo ""
-  echo "  ── Mock RequestPayout Response (save for Ozow form) ──"
+  MOCK_RESP=$(ozow_mock_post "requestpayout" "$(mock_payout_body "MOCK-NOTVER-$(date +%s)")")
+  echo ""; echo "  ── Mock RequestPayout Response ──"
   echo "$MOCK_RESP" | jq . 2>/dev/null || echo "$MOCK_RESP"
 
   MOCK_STATUS=$(echo "$MOCK_RESP" | jq -r '.payoutStatus.status // .status // "unknown"')
   MOCK_SUB=$(echo "$MOCK_RESP" | jq -r '.payoutStatus.subStatus // .subStatus // "unknown"')
 
-  # Expected: status=99, subStatus=202
   if [ "$MOCK_STATUS" = "99" ] && [ "$MOCK_SUB" = "202" ]; then
     pass "Case 10: IsNotVerifiedResponse — status=99 subStatus=202 ✓"
   else
     info "Case 10: Got status=$MOCK_STATUS subStatus=$MOCK_SUB (expected 99/202)"
   fi
+  reset_test_config; sleep 1
 
-  reset_test_config
-  sleep 1
-
-  # ── Case 11: IsAccountDecryptionKeyMissing ────────────────────────────────
   section "Case 11: Mock — IsAccountDecryptionKeyMissing"
   info "Setting test config: isAccountNumberDecryptionKeyMissing=true"
-
   CONFIG_RESP=$(set_test_config "isAccountNumberDecryptionKeyMissing")
   echo "  SetConfig response: $CONFIG_RESP"
 
-  REF="MOCK-KEYMISS-$(date +%s)"
-  MOCK_RESP=$(ozow_mock_post "requestpayout" "$(mock_payout_body "$REF")")
-  echo ""
-  echo "  ── Mock RequestPayout Response (save for Ozow form) ──"
+  MOCK_RESP=$(ozow_mock_post "requestpayout" "$(mock_payout_body "MOCK-KEYMISS-$(date +%s)")")
+  echo ""; echo "  ── Mock RequestPayout Response ──"
   echo "$MOCK_RESP" | jq . 2>/dev/null || echo "$MOCK_RESP"
 
   MOCK_STATUS=$(echo "$MOCK_RESP" | jq -r '.payoutStatus.status // .status // "unknown"')
   MOCK_SUB=$(echo "$MOCK_RESP" | jq -r '.payoutStatus.subStatus // .subStatus // "unknown"')
 
-  # Expected: status=99, subStatus=205
   if [ "$MOCK_STATUS" = "99" ] && [ "$MOCK_SUB" = "205" ]; then
     pass "Case 11: IsAccountDecryptionKeyMissing — status=99 subStatus=205 ✓"
   else
     info "Case 11: Got status=$MOCK_STATUS subStatus=$MOCK_SUB (expected 99/205)"
   fi
-
   reset_test_config
 
 fi  # end mock cases

@@ -9,6 +9,7 @@ namespace SecureX.Api.Controllers;
 [ApiController]
 [Route("api/transactions")]
 [Microsoft.AspNetCore.Authorization.Authorize]
+[IgnoreAntiforgeryToken]
 public class TransactionsController(TransactionService txService, AppDbContext db, OzowCollectionService collectionService) : ControllerBase
 {
     // ── POST /api/transactions — submit deal form ────────────────────────────
@@ -134,11 +135,15 @@ public class TransactionsController(TransactionService txService, AppDbContext d
 
     // ── GET /api/transactions/{id}/audit ─────────────────────────────────────
     [HttpGet("{id:guid}/audit")]
-    public async Task<IActionResult> Audit(Guid id)
+    public async Task<IActionResult> Audit(Guid id, [FromQuery] int page = 1, [FromQuery] int size = 50)
     {
+        size = Math.Clamp(size, 1, 200);
+        page = Math.Max(1, page);
         var logs = await db.AuditLogs
             .Where(a => a.TransactionId == id)
             .OrderBy(a => a.Timestamp)
+            .Skip((page - 1) * size)
+            .Take(size)
             .ToListAsync();
         return Ok(logs);
     }

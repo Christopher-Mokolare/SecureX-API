@@ -108,8 +108,8 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
         });
 
         await db.SaveChangesAsync();
-        await db.Database.ExecuteSqlRawAsync(
-            "UPDATE transactions SET version = version + 1 WHERE \"Id\" = {0}", txId);
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE transactions SET version = version + 1 WHERE \"Id\" = {txId}");
         tx.Version++;
         return tx;
     }
@@ -125,7 +125,9 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
         if (tx is null) return false;
 
         logger.LogInformation("Ozow payout complete. Ref={Ref} PayoutId={PayoutId} Status={Status}",
-            merchantReference, payoutId, tx.Status);
+            merchantReference.Replace("\n", "").Replace("\r", ""),
+            payoutId.Replace("\n", "").Replace("\r", ""),
+            tx.Status);
         return true;
     }
 

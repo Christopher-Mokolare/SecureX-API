@@ -9,6 +9,7 @@ namespace SecureX.Api.Controllers;
 [ApiController]
 [Route("api/users")]
 [Microsoft.AspNetCore.Authorization.Authorize]
+[IgnoreAntiforgeryToken]
 public class UsersController(AppDbContext db, IHttpClientFactory httpFactory, IConfiguration config) : ControllerBase
 {
     // ── POST /api/users/{id}/bank-details ────────────────────────────────────

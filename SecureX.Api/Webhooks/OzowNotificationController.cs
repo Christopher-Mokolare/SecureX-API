@@ -8,6 +8,7 @@ using SecureX.Api.Services;
 namespace SecureX.Api.Webhooks;
 
 [ApiController]
+[IgnoreAntiforgeryToken]
 public class OzowNotificationController(HashService hash, AppDbContext db,
     TransactionService txService, IConfiguration config, ILogger<OzowNotificationController> logger) : ControllerBase
 {
@@ -70,7 +71,9 @@ public class OzowNotificationController(HashService hash, AppDbContext db,
                 await txService.HandlePayoutCompleteAsync(req.MerchantReference, req.PayoutId);
             else if (status is 99 or 4 or 90)
                 logger.LogWarning("PayoutNotification: terminal non-complete. PayoutId={PayoutId} status={Status} subStatus={SubStatus} Ref={Ref}",
-                    req.PayoutId, status, subStatus, req.MerchantReference);
+                    req.PayoutId?.Replace("\n", "").Replace("\r", ""),
+                    status, subStatus,
+                    req.MerchantReference?.Replace("\n", "").Replace("\r", ""));
         }
 
         return Ok(new PayoutNotificationResponse

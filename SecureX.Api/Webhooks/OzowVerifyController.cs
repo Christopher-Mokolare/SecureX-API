@@ -6,6 +6,7 @@ using System.Text.Json;
 namespace SecureX.Api.Webhooks;
 
 [ApiController]
+[IgnoreAntiforgeryToken]
 public class OzowVerifyController(HashService hash, IConfiguration config, ILogger<OzowVerifyController> logger) : ControllerBase
 {
     [HttpPost("/securex/payout-verify")]
@@ -26,11 +27,13 @@ public class OzowVerifyController(HashService hash, IConfiguration config, ILogg
 
         if (!hash.VerifyPayoutHash(req, apiKey))
         {
-            logger.LogWarning("PayoutVerify: hash mismatch for payoutId={PayoutId}", req.PayoutId);
+            logger.LogWarning("PayoutVerify: hash mismatch for payoutId={PayoutId}",
+            req.PayoutId?.Replace("\n", "").Replace("\r", ""));
             return Ok(Reject(req.PayoutId, "Invalid hash check"));
         }
 
-        logger.LogInformation("PayoutVerify: verified payoutId={PayoutId}", req.PayoutId);
+        logger.LogInformation("PayoutVerify: verified payoutId={PayoutId}",
+            req.PayoutId?.Replace("\n", "").Replace("\r", ""));
         return Ok(new PayoutVerifyResponse
         {
             PayoutId = req.PayoutId,
