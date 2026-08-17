@@ -33,6 +33,8 @@ public class UserResponse
     public string Email { get; set; } = "";
     public string Phone { get; set; } = "";
     public string BankVerificationStatus { get; set; } = "";
+    public string IdCheckStatus { get; set; } = "";
+    public string AmlStatus { get; set; } = "";
 }
 
 // ── Transactions ─────────────────────────────────────────────────────────────

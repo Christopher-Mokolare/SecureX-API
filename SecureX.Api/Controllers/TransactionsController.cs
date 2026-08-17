@@ -205,6 +205,39 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         Seller = t.Seller is null ? null : MapUser(t.Seller),
     };
 
+    // ── POST /api/transactions/{id}/start-buyer-kyc ──────────────────────────
+    [HttpPost("{id:guid}/start-buyer-kyc")]
+    public async Task<IActionResult> StartBuyerKyc(Guid id)
+    {
+        var tx = await db.Transactions.Include(t => t.Buyer).FirstOrDefaultAsync(t => t.Id == id);
+        if (tx is null) return NotFound();
+        if (tx.Buyer is null) return BadRequest(new ErrorResponse { Error = "Buyer not found" });
+
+        tx.Buyer.IdCheckStatus = KycStatus.Approved;
+        tx.Buyer.AmlStatus = KycStatus.Approved;
+        tx.Buyer.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        return Ok(new { idCheck = "Approved", aml = "Approved" });
+    }
+
+    // ── POST /api/transactions/{id}/start-seller-kyc ─────────────────────────
+    [HttpPost("{id:guid}/start-seller-kyc")]
+    public async Task<IActionResult> StartSellerKyc(Guid id)
+    {
+        var tx = await db.Transactions.Include(t => t.Seller).FirstOrDefaultAsync(t => t.Id == id);
+        if (tx is null) return NotFound();
+        if (tx.Seller is null) return BadRequest(new ErrorResponse { Error = "Seller not found" });
+
+        tx.Seller.IdCheckStatus = KycStatus.Approved;
+        tx.Seller.AmlStatus = KycStatus.Approved;
+        tx.Seller.BankVerificationStatus = KycStatus.Approved;
+        tx.Seller.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        return Ok(new { status = "Approved" });
+    }
+
     private static UserResponse MapUser(User u) => new()
     {
         Id = u.Id,
@@ -212,5 +245,7 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         Email = u.Email,
         Phone = u.Phone,
         BankVerificationStatus = u.BankVerificationStatus.ToString(),
+        IdCheckStatus = u.IdCheckStatus.ToString(),
+        AmlStatus = u.AmlStatus.ToString(),
     };
 }

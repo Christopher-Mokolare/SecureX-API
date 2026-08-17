@@ -133,6 +133,10 @@ ozow_mock_post() {
     -d "$2" "$MOCK_BASE/$1"
 }
 
+mock_config_base() {
+  echo "$MOCK_BASE/settestconfiguration?siteCode=$SITE_CODE"
+}
+
 set_test_config() {
   local field=$1
   local body
@@ -153,7 +157,7 @@ EOF
   curl -s -X POST \
     -H "SiteCode: $SITE_CODE" -H "ApiKey: $PAYOUT_API_KEY" \
     -H "Content-Type: application/json" \
-    -d "$body" "$PAYOUT_BASE/settestconfiguration"
+    -d "$body" "$(mock_config_base)"
 }
 
 reset_test_config() {
@@ -169,7 +173,7 @@ reset_test_config() {
       \"isNotVerifiedResponse\": false,
       \"isAccountNumberDecryptionKeyMissing\": false,
       \"hasRetriedCountBeenExceeded\": false
-    }" "$PAYOUT_BASE/settestconfiguration" > /dev/null
+    }" "$(mock_config_base)" > /dev/null
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -375,31 +379,55 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "mock" ]; then
   CONFIG_RESP=$(set_test_config "isAccountDecryptionFailed")
   echo "  SetConfig response: $CONFIG_RESP"
 
-  MOCK_RESP=$(ozow_mock_post "requestpayout" "$(mock_payout_body "MOCK-DECFAIL-$(date +%s)")")
+  MOCK_REF="MOCK-DECFAIL-$(date +%s)"
+  MOCK_RESP=$(ozow_mock_post "requestpayout" "$(mock_payout_body "$MOCK_REF")")
+  MOCK_PAYOUT_ID=$(echo "$MOCK_RESP" | jq -r '.payoutId // empty')
   echo ""; echo "  ── Mock RequestPayout Response ──"
   echo "$MOCK_RESP" | jq . 2>/dev/null || echo "$MOCK_RESP"
 
-  MOCK_STATUS=$(echo "$MOCK_RESP" | jq -r '.payoutStatus.status // .status // "unknown"')
-  MOCK_SUB=$(echo "$MOCK_RESP" | jq -r '.payoutStatus.subStatus // .subStatus // "unknown"')
+  if [ -n "$MOCK_PAYOUT_ID" ]; then
+    sleep 5
+    GET_RESP=$(curl -s -H "SiteCode: $SITE_CODE" -H "ApiKey: $PAYOUT_API_KEY" \
+      "$MOCK_BASE/getpayout?payoutId=$MOCK_PAYOUT_ID")
+    echo ""; echo "  ── Mock GetPayout Response ──"
+    echo "$GET_RESP" | jq . 2>/dev/null || echo "$GET_RESP"
+    MOCK_STATUS=$(echo "$GET_RESP" | jq -r '.payoutStatus.status // "unknown"')
+    MOCK_SUB=$(echo "$GET_RESP" | jq -r '.payoutStatus.subStatus // "unknown"')
+  else
+    MOCK_STATUS=$(echo "$MOCK_RESP" | jq -r '.payoutStatus.status // "unknown"')
+    MOCK_SUB=$(echo "$MOCK_RESP" | jq -r '.payoutStatus.subStatus // "unknown"')
+  fi
 
   if [ "$MOCK_STATUS" = "99" ] && [ "$MOCK_SUB" = "205" ]; then
     pass "Case 9: IsAccountDecryptionFailed — status=99 subStatus=205 ✓"
   else
     info "Case 9: Got status=$MOCK_STATUS subStatus=$MOCK_SUB (expected 99/205)"
   fi
-  reset_test_config; sleep 1
+  reset_test_config; sleep 2
 
   section "Case 10: Mock — IsNotVerifiedResponse"
   info "Setting test config: isNotVerifiedResponse=true"
   CONFIG_RESP=$(set_test_config "isNotVerifiedResponse")
   echo "  SetConfig response: $CONFIG_RESP"
 
-  MOCK_RESP=$(ozow_mock_post "requestpayout" "$(mock_payout_body "MOCK-NOTVER-$(date +%s)")")
+  MOCK_REF="MOCK-NOTVER-$(date +%s)"
+  MOCK_RESP=$(ozow_mock_post "requestpayout" "$(mock_payout_body "$MOCK_REF")")
+  MOCK_PAYOUT_ID=$(echo "$MOCK_RESP" | jq -r '.payoutId // empty')
   echo ""; echo "  ── Mock RequestPayout Response ──"
   echo "$MOCK_RESP" | jq . 2>/dev/null || echo "$MOCK_RESP"
 
-  MOCK_STATUS=$(echo "$MOCK_RESP" | jq -r '.payoutStatus.status // .status // "unknown"')
-  MOCK_SUB=$(echo "$MOCK_RESP" | jq -r '.payoutStatus.subStatus // .subStatus // "unknown"')
+  if [ -n "$MOCK_PAYOUT_ID" ]; then
+    sleep 2
+    GET_RESP=$(curl -s -H "SiteCode: $SITE_CODE" -H "ApiKey: $PAYOUT_API_KEY" \
+      "$MOCK_BASE/getpayout?payoutId=$MOCK_PAYOUT_ID")
+    echo ""; echo "  ── Mock GetPayout Response ──"
+    echo "$GET_RESP" | jq . 2>/dev/null || echo "$GET_RESP"
+    MOCK_STATUS=$(echo "$GET_RESP" | jq -r '.payoutStatus.status // "unknown"')
+    MOCK_SUB=$(echo "$GET_RESP" | jq -r '.payoutStatus.subStatus // "unknown"')
+  else
+    MOCK_STATUS=$(echo "$MOCK_RESP" | jq -r '.payoutStatus.status // "unknown"')
+    MOCK_SUB=$(echo "$MOCK_RESP" | jq -r '.payoutStatus.subStatus // "unknown"')
+  fi
 
   if [ "$MOCK_STATUS" = "99" ] && [ "$MOCK_SUB" = "202" ]; then
     pass "Case 10: IsNotVerifiedResponse — status=99 subStatus=202 ✓"
@@ -413,12 +441,24 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "mock" ]; then
   CONFIG_RESP=$(set_test_config "isAccountNumberDecryptionKeyMissing")
   echo "  SetConfig response: $CONFIG_RESP"
 
-  MOCK_RESP=$(ozow_mock_post "requestpayout" "$(mock_payout_body "MOCK-KEYMISS-$(date +%s)")")
+  MOCK_REF="MOCK-KEYMISS-$(date +%s)"
+  MOCK_RESP=$(ozow_mock_post "requestpayout" "$(mock_payout_body "$MOCK_REF")")
+  MOCK_PAYOUT_ID=$(echo "$MOCK_RESP" | jq -r '.payoutId // empty')
   echo ""; echo "  ── Mock RequestPayout Response ──"
   echo "$MOCK_RESP" | jq . 2>/dev/null || echo "$MOCK_RESP"
 
-  MOCK_STATUS=$(echo "$MOCK_RESP" | jq -r '.payoutStatus.status // .status // "unknown"')
-  MOCK_SUB=$(echo "$MOCK_RESP" | jq -r '.payoutStatus.subStatus // .subStatus // "unknown"')
+  if [ -n "$MOCK_PAYOUT_ID" ]; then
+    sleep 2
+    GET_RESP=$(curl -s -H "SiteCode: $SITE_CODE" -H "ApiKey: $PAYOUT_API_KEY" \
+      "$MOCK_BASE/getpayout?payoutId=$MOCK_PAYOUT_ID")
+    echo ""; echo "  ── Mock GetPayout Response ──"
+    echo "$GET_RESP" | jq . 2>/dev/null || echo "$GET_RESP"
+    MOCK_STATUS=$(echo "$GET_RESP" | jq -r '.payoutStatus.status // "unknown"')
+    MOCK_SUB=$(echo "$GET_RESP" | jq -r '.payoutStatus.subStatus // "unknown"')
+  else
+    MOCK_STATUS=$(echo "$MOCK_RESP" | jq -r '.payoutStatus.status // "unknown"')
+    MOCK_SUB=$(echo "$MOCK_RESP" | jq -r '.payoutStatus.subStatus // "unknown"')
+  fi
 
   if [ "$MOCK_STATUS" = "99" ] && [ "$MOCK_SUB" = "205" ]; then
     pass "Case 11: IsAccountDecryptionKeyMissing — status=99 subStatus=205 ✓"

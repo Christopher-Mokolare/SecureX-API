@@ -304,6 +304,14 @@ namespace SecureX.Api.Migrations
                         .HasColumnType("text")
                         .HasColumnName("bank_verification_status");
 
+                    b.Property<int>("IdCheckStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("id_check_status");
+
+                    b.Property<int>("AmlStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("aml_status");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");

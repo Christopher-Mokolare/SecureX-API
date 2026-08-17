@@ -26,6 +26,8 @@ public class User
     public string Email { get; set; } = "";
     public string Phone { get; set; } = "";
     public KycStatus BankVerificationStatus { get; set; } = KycStatus.Pending;
+    public KycStatus IdCheckStatus { get; set; } = KycStatus.Pending;
+    public KycStatus AmlStatus { get; set; } = KycStatus.Pending;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
