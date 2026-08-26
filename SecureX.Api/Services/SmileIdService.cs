@@ -103,16 +103,14 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
         try
         {
             var client  = httpFactory.CreateClient("SmileId");
-            var content = new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["partner_id"] = partnerId,
-                ["timestamp"]  = timestamp,
-                ["signature"]  = signature
-            });
+            var content = new MultipartFormDataContent();
+            content.Add(new StringContent(partnerId),  "partner_id");
+            content.Add(new StringContent(timestamp),  "timestamp");
+            content.Add(new StringContent(signature),  "signature");
             var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/token") { Content = content };
-            var resp    = await client.SendAsync(request);
+            var resp       = await client.SendAsync(request);
             var contentStr = await resp.Content.ReadAsStringAsync();
-            var result  = JsonSerializer.Deserialize<JsonElement>(contentStr);
+            var result     = JsonSerializer.Deserialize<JsonElement>(contentStr);
             if (!result.TryGetProperty("token", out var t))
             {
                 logger.LogError("SmileID: token response {Status}: {Body}", resp.StatusCode, contentStr);
