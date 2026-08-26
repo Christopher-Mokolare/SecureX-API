@@ -75,33 +75,20 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
         AppendAudit(tx, null, TransactionStatus.PaymentPending, "system", "Transaction created — awaiting buyer KYC");
         await db.SaveChangesAsync();
 
-        // Submit KYC job — result arrives asynchronously via SmileID webhook.
-        // In sandbox (testapi URL), skip the call and auto-approve — SmileID sandbox
-        // requires partner-specific activation for test identities to work.
-        var smileBaseUrl = config["SmileId:BaseUrl"] ?? "";
-        if (smileBaseUrl.Contains("testapi", StringComparison.OrdinalIgnoreCase))
+        // Submit KYC job — result arrives asynchronously via SmileID webhook
+        var jobId = await smileId.SubmitEnhancedKycAsync(
+            req.BuyerFullName, req.BuyerIdNumber, req.BuyerEmail, req.BuyerPhone, tx.DealReference);
+
+        if (jobId is not null)
         {
-            buyer.IdCheckStatus = KycStatus.Approved;
-            buyer.AmlStatus = KycStatus.Approved;
+            buyer.SmileIdJobId = jobId;
             buyer.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
-            logger.LogInformation("SmileID sandbox: auto-approved KYC for deal {Ref}", tx.DealReference);
+            logger.LogInformation("SmileID KYC job submitted: {JobId} for deal {Ref}", jobId, tx.DealReference);
         }
         else
         {
-            var jobId = await smileId.SubmitEnhancedKycAsync(
-                req.BuyerFullName, req.BuyerIdNumber, req.BuyerEmail, req.BuyerPhone, tx.DealReference);
-            if (jobId is not null)
-            {
-                buyer.SmileIdJobId = jobId;
-                buyer.UpdatedAt = DateTime.UtcNow;
-                await db.SaveChangesAsync();
-                logger.LogInformation("SmileID KYC job submitted: {JobId} for deal {Ref}", jobId, tx.DealReference);
-            }
-            else
-            {
-                logger.LogWarning("SmileID KYC job submission failed for deal {Ref} — KYC status remains Pending", tx.DealReference);
-            }
+            logger.LogWarning("SmileID KYC job submission failed for deal {Ref} — KYC status remains Pending", tx.DealReference);
         }
 
         tx.Buyer = buyer;
