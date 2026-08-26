@@ -65,10 +65,10 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
         AddField("partner_params", partnerParams);
         sb.Append($"--{boundary}--\r\n");
 
-        var bodyBytes = Encoding.UTF8.GetBytes(sb.ToString());
+        var bodyStr = sb.ToString();
+        logger.LogInformation("SmileID KYC body:\n{Body}", bodyStr);
+        var bodyBytes = Encoding.UTF8.GetBytes(bodyStr);
         var rawContent = new ByteArrayContent(bodyBytes);
-        // TryAddWithoutValidation bypasses .NET's automatic boundary quoting
-        // (boundary="abc") so SmileID receives the unquoted form (boundary=abc)
         rawContent.Headers.TryAddWithoutValidation("Content-Type", $"multipart/form-data; boundary={boundary}");
 
         var client = httpFactory.CreateClient("SmileId");
@@ -78,6 +78,7 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             request.Headers.Add("SmileID-Token", token);
             var resp = await client.SendAsync(request);
             var content = await resp.Content.ReadAsStringAsync();
+            logger.LogInformation("SmileID KYC response {Status}: {Body}", resp.StatusCode, content);
 
             if ((int)resp.StatusCode != 202)
             {
