@@ -2,6 +2,7 @@
   "version": "0.2",
   "words": [
     "SMILEID", "hmac", "HMACSHA", "Ozow", "OZOW", "Npgsql", "Fargate", "smileid", "pep",
-    "appsettings", "securex", "dataprotection", "plpgsql"
+    "appsettings", "securex", "dataprotection", "plpgsql",
+    "ASPNETCORE", "inotify", "sslmode", "testapi"
   ]
 }

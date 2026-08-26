@@ -14,11 +14,12 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     EnvironmentName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"
 });
 
-// Disable file watchers — prevents inotify exhaustion on constrained hosts (Render free tier)
-builder.Configuration.Sources
-    .OfType<Microsoft.Extensions.Configuration.FileConfigurationSource>()
-    .ToList()
-    .ForEach(s => s.ReloadOnChange = false);
+// Disable file watchers before any config sources are built — prevents inotify exhaustion on Render
+builder.Host.ConfigureAppConfiguration((_, config) =>
+{
+    foreach (var s in config.Sources.OfType<Microsoft.Extensions.Configuration.FileConfigurationSource>())
+        s.ReloadOnChange = false;
+});
 
 // ── Config from env vars (override appsettings) ──────────────────────────────
 builder.Configuration.AddEnvironmentVariables();
