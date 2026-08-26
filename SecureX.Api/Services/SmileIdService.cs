@@ -27,31 +27,35 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
         var givenNames = string.Join(' ', nameParts[..^1]);
         var lastName   = nameParts[^1];
 
-        var client = httpFactory.CreateClient("SmileId");
-        var form = new MultipartFormDataContent();
-        form.Add(new StringContent(country),      "country");
-        form.Add(new StringContent(idType),       "id_type");
-        form.Add(new StringContent(idNumber),     "id_number");
-        form.Add(new StringContent(givenNames),   "given_names");
-        form.Add(new StringContent(lastName),     "last_name");
-        form.Add(new StringContent(email),        "email");
-        form.Add(new StringContent(phone),        "phone_number");
-        form.Add(new StringContent(callbackUrl),  "callback_url");
-        form.Add(new StringContent(JsonSerializer.Serialize(new
+        var opts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
+        var payload = JsonSerializer.Serialize(new
         {
-            granted    = true,
-            granted_at = DateTime.UtcNow.ToString("o"),
-            notice_language = "en",
-            notice_privacy_policy_url = config["SmileId:PolicyUrl"] ?? "https://secureexchange.co.za/privacy"
-        }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower })), "consent");
-        form.Add(new StringContent(dealReference), "partner_params[deal_reference]");
+            country,
+            id_type      = idType,
+            id_number    = idNumber,
+            given_names  = givenNames,
+            last_name    = lastName,
+            email,
+            phone_number = phone,
+            callback_url = callbackUrl,
+            consent = new
+            {
+                granted    = true,
+                granted_at = DateTime.UtcNow.ToString("o"),
+                notice_language = "en",
+                notice_privacy_policy_url = config["SmileId:PolicyUrl"] ?? "https://secureexchange.co.za/privacy"
+            },
+            partner_params = new { deal_reference = dealReference }
+        }, opts);
 
+        var client = httpFactory.CreateClient("SmileId");
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/enhanced_kyc") { Content = form };
-            request.Headers.Add("SmileID-Partner-ID", partnerId);
-            request.Headers.Add("SmileID-Token", token);
-            request.Headers.Add("Accept", "application/json");
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/enhanced_kyc")
+            {
+                Content = new StringContent(payload, System.Text.Encoding.UTF8, "application/json")
+            };
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
             var resp    = await client.SendAsync(request);
             var content = await resp.Content.ReadAsStringAsync();
 
