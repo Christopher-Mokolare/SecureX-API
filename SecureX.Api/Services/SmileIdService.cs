@@ -23,6 +23,8 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             return null;
         }
 
+        logger.LogInformation("SmileID: callbackUrl={CallbackUrl}", callbackUrl);
+
         var nameParts = fullName.Trim().Split(' ');
         var givenNames = string.Join(' ', nameParts[..^1]);
         var lastName = nameParts[^1];
