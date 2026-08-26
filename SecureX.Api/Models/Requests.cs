@@ -75,6 +75,7 @@ public class CreateTransactionRequest
     public string BuyerFullName { get; set; } = "";
     public string BuyerEmail { get; set; } = "";
     public string BuyerPhone { get; set; } = "";
+    public string BuyerIdNumber { get; set; } = "";
     public string SellerFullName { get; set; } = "";
     public string SellerEmail { get; set; } = "";
     public string SellerPhone { get; set; } = "";

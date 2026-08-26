@@ -20,16 +20,21 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         if (string.IsNullOrEmpty(req.BuyerEmail)) return BadRequest(new ErrorResponse { Error = "Buyer email is required" });
         if (string.IsNullOrEmpty(req.SellerEmail)) return BadRequest(new ErrorResponse { Error = "Seller email is required" });
         if (req.BuyerEmail == req.SellerEmail) return BadRequest(new ErrorResponse { Error = "Buyer and seller cannot be the same person" });
+        if (string.IsNullOrWhiteSpace(req.BuyerIdNumber)) return BadRequest(new ErrorResponse { Error = "Buyer ID number is required" });
 
-        var tx = await txService.CreateAsync(req);
-
-        var redirectUrl = await collectionService.CreatePaymentAsync(tx.DealReference, tx.TotalCheckoutAmount);
-        if (redirectUrl is null)
-            return StatusCode(502, new ErrorResponse { Error = "Transaction created but failed to generate payment link" });
-
-        var response = Map(tx);
-        response.PaymentRedirectUrl = redirectUrl;
-        return Ok(response);
+        try
+        {
+            var tx = await txService.CreateAsync(req);
+            var response = Map(tx);
+            // Payment link is withheld until KYC clears via SmileID webhook.
+            // Frontend should poll GET /api/transactions/{id} and call POST /{id}/payment-link
+            // once buyer.IdCheckStatus == "Approved".
+            return Ok(response);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new ErrorResponse { Error = ex.Message });
+        }
     }
 
     // ── GET /api/transactions/{id} ───────────────────────────────────────────
@@ -152,11 +157,14 @@ public class TransactionsController(TransactionService txService, AppDbContext d
     [HttpPost("{id:guid}/payment-link")]
     public async Task<IActionResult> PaymentLink(Guid id)
     {
-        var tx = await db.Transactions.FindAsync(id);
+        var tx = await db.Transactions.Include(t => t.Buyer).FirstOrDefaultAsync(t => t.Id == id);
         if (tx is null) return NotFound();
 
         if (tx.Status != TransactionStatus.PaymentPending)
             return BadRequest(new ErrorResponse { Error = $"Expected PaymentPending, got {tx.Status}" });
+
+        if (tx.Buyer?.IdCheckStatus != KycStatus.Approved || tx.Buyer?.AmlStatus != KycStatus.Approved)
+            return BadRequest(new ErrorResponse { Error = "Buyer KYC has not been approved yet" });
 
         var redirectUrl = await collectionService.CreatePaymentAsync(tx.DealReference, tx.TotalCheckoutAmount);
         if (redirectUrl is null)
@@ -205,21 +213,7 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         Seller = t.Seller is null ? null : MapUser(t.Seller),
     };
 
-    // ── POST /api/transactions/{id}/start-buyer-kyc ──────────────────────────
-    [HttpPost("{id:guid}/start-buyer-kyc")]
-    public async Task<IActionResult> StartBuyerKyc(Guid id)
-    {
-        var tx = await db.Transactions.Include(t => t.Buyer).FirstOrDefaultAsync(t => t.Id == id);
-        if (tx is null) return NotFound();
-        if (tx.Buyer is null) return BadRequest(new ErrorResponse { Error = "Buyer not found" });
-
-        tx.Buyer.IdCheckStatus = KycStatus.Approved;
-        tx.Buyer.AmlStatus = KycStatus.Approved;
-        tx.Buyer.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync();
-
-        return Ok(new { idCheck = "Approved", aml = "Approved" });
-    }
+    // ── POST /api/transactions/{id}/start-buyer-kyc — removed: KYC now runs inline on deal creation ──
 
     // ── POST /api/transactions/{id}/start-seller-kyc ─────────────────────────
     [HttpPost("{id:guid}/start-seller-kyc")]

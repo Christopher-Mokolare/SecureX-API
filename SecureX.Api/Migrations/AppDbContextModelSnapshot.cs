@@ -17,7 +17,7 @@ namespace SecureX.Api.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "8.0.0")
+                .HasAnnotation("ProductVersion", "9.0.3")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -298,6 +298,10 @@ namespace SecureX.Api.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("bank_group_id");
+
+                    b.Property<string>("SmileIdJobId")
+                        .HasColumnType("text")
+                        .HasColumnName("smile_id_job_id");
 
                     b.Property<string>("BankVerificationStatus")
                         .IsRequired()

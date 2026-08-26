@@ -24,9 +24,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.BankAccountNumber).HasColumnName("bank_account_number");
             e.Property(x => x.BankBranchCode).HasColumnName("bank_branch_code");
              e.Property(x => x.BankGroupId).HasColumnName("bank_group_id");
+            e.Property(x => x.SmileIdJobId).HasColumnName("smile_id_job_id");
             e.Property(x => x.BankVerificationStatus)
                 .HasColumnName("bank_verification_status")
                 .HasConversion<string>();
+            e.Property(x => x.IdCheckStatus).HasConversion<string>();
+            e.Property(x => x.AmlStatus).HasConversion<string>();
             e.Property(x => x.CreatedAt).HasColumnName("created_at");
             e.Property(x => x.UpdatedAt).HasColumnName("updated_at");
         });

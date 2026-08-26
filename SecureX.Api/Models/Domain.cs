@@ -25,6 +25,7 @@ public class User
     public string BankGroupId { get; set; } = "";       // Ozow bank group UUID
     public string Email { get; set; } = "";
     public string Phone { get; set; } = "";
+    public string? SmileIdJobId { get; set; }           // V3 Enhanced KYC job_id
     public KycStatus BankVerificationStatus { get; set; } = KycStatus.Pending;
     public KycStatus IdCheckStatus { get; set; } = KycStatus.Pending;
     public KycStatus AmlStatus { get; set; } = KycStatus.Pending;
