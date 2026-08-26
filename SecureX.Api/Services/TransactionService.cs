@@ -76,33 +76,19 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
         await db.SaveChangesAsync();
 
         // Submit KYC job — result arrives asynchronously via SmileID webhook
-        // Sandbox bypass: auto-approve only when explicitly enabled AND not in production
-        var bypass = config["SmileId:SandboxBypass"] == "true"
-            && !string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Production", StringComparison.OrdinalIgnoreCase);
-        if (bypass)
+        var jobId = await smileId.SubmitEnhancedKycAsync(
+            req.BuyerFullName, req.BuyerIdNumber, req.BuyerEmail, req.BuyerPhone, tx.DealReference);
+
+        if (jobId is not null)
         {
-            buyer.IdCheckStatus = KycStatus.Approved;
-            buyer.AmlStatus = KycStatus.Approved;
+            buyer.SmileIdJobId = jobId;
             buyer.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
-            logger.LogInformation("SmileID sandbox bypass: auto-approved buyer for deal {Ref}", tx.DealReference);
+            logger.LogInformation("SmileID KYC job submitted: {JobId} for deal {Ref}", jobId, tx.DealReference);
         }
         else
         {
-            var jobId = await smileId.SubmitEnhancedKycAsync(
-            req.BuyerFullName, req.BuyerIdNumber, req.BuyerEmail, req.BuyerPhone, tx.DealReference);
-
-            if (jobId is not null)
-            {
-                buyer.SmileIdJobId = jobId;
-                buyer.UpdatedAt = DateTime.UtcNow;
-                await db.SaveChangesAsync();
-                logger.LogInformation("SmileID KYC job submitted: {JobId} for deal {Ref}", jobId, tx.DealReference);
-            }
-            else
-            {
-                logger.LogWarning("SmileID KYC job submission failed for deal {Ref} — KYC status remains Pending", tx.DealReference);
-            }
+            logger.LogWarning("SmileID KYC job submission failed for deal {Ref} — KYC status remains Pending", tx.DealReference);
         }
 
         tx.Buyer = buyer;
