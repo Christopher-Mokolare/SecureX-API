@@ -32,7 +32,6 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
         var opts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
         var now = DateTime.UtcNow.ToString("o");
 
-        // ✅ FIX: Normalize phone number to include + prefix
         var cleanPhone = phone;
         if (!string.IsNullOrEmpty(cleanPhone))
         {
@@ -43,7 +42,12 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
                 cleanPhone = "+" + cleanPhone;
         }
 
-        var userDetails = JsonSerializer.Serialize(new { given_names = givenNames, last_name = lastName, email, phone_number = cleanPhone }, opts);
+        // In sandbox, omit name fields — SmileID matches on id_number alone and returns its own PII.
+        // In production, include given_names + last_name for identity verification.
+        var isSandbox = baseUrl.Contains("testapi", StringComparison.OrdinalIgnoreCase);
+        var userDetails = isSandbox
+            ? JsonSerializer.Serialize(new { email, phone_number = cleanPhone }, opts)
+            : JsonSerializer.Serialize(new { given_names = givenNames, last_name = lastName, email, phone_number = cleanPhone }, opts);
         var consent = JsonSerializer.Serialize(new { granted = true, granted_at = now, notice_language = "en", notice_privacy_policy_url = config["SmileId:PolicyUrl"] ?? "https://secureexchange.co.za/privacy" }, opts);
         var partnerParams = JsonSerializer.Serialize(new { deal_reference = dealReference }, opts);
 
