@@ -26,11 +26,10 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
         try { payload = JsonSerializer.Deserialize<JsonElement>(body, _json); }
         catch { return BadRequest(); }
 
-        // SmileID V3 callbacks carry signature + timestamp in the JSON body
-        var signature = payload.TryGetProperty("signature", out var sigProp) ? sigProp.GetString() ?? "" : "";
-        var timestamp = payload.TryGetProperty("timestamp", out var tsProp)  ? tsProp.GetString()  ?? "" : "";
+        // SmileID V3 sends signature in HTTP headers, not the JSON body
+        var signature = Request.Headers["SmileID-Signature"].FirstOrDefault() ?? "";
+        var timestamp = Request.Headers["SmileID-Timestamp"].FirstOrDefault() ?? "";
 
-        logger.LogInformation("SmileID webhook raw body: {Body}", body);
         logger.LogInformation("SmileID webhook sig={Sig} ts={Ts}", signature, timestamp);
 
         if (!smileId.VerifyWebhookSignature(signature, timestamp))
