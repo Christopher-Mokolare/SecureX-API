@@ -9,7 +9,7 @@
 BASE="${1:-http://localhost:8080}"
 TS=$(date +%s)
 BUYER_NAME="Amina Fatou Clearwater"
-BUYER_ID="9001015009087"
+BUYER_ID="0000000000000"
 BUYER_EMAIL="e2e-buyer-${TS}@test.com"
 SELLER_EMAIL="e2e-seller-${TS}@test.com"
 
