@@ -100,19 +100,22 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
         var timestamp = DateTime.UtcNow.ToString("o");
         var signature = BuildSignature(partnerId, timestamp, apiKey);
 
-        var payload = new { partner_id = partnerId, timestamp, signature };
-
         try
         {
             var client  = httpFactory.CreateClient("SmileId");
-            var body    = new StringContent(JsonSerializer.Serialize(payload, _json), Encoding.UTF8, "application/json");
-            var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/token") { Content = body };
+            var content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["partner_id"] = partnerId,
+                ["timestamp"]  = timestamp,
+                ["signature"]  = signature
+            });
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/token") { Content = content };
             var resp    = await client.SendAsync(request);
-            var content = await resp.Content.ReadAsStringAsync();
-            var result  = JsonSerializer.Deserialize<JsonElement>(content);
+            var contentStr = await resp.Content.ReadAsStringAsync();
+            var result  = JsonSerializer.Deserialize<JsonElement>(contentStr);
             if (!result.TryGetProperty("token", out var t))
             {
-                logger.LogError("SmileID: token response {Status}: {Body}", resp.StatusCode, content);
+                logger.LogError("SmileID: token response {Status}: {Body}", resp.StatusCode, contentStr);
                 return null;
             }
             return t.GetString();
