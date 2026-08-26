@@ -1,7 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-
 namespace SecureX.Api.Services;
 
 public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration config, ILogger<SmileIdService> logger)
@@ -38,10 +37,13 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
         form.Add(new StringContent(email),        "email");
         form.Add(new StringContent(phone),        "phone_number");
         form.Add(new StringContent(callbackUrl),  "callback_url");
-        form.Add(new StringContent("true"),       "consent[granted]");
-        form.Add(new StringContent(DateTime.UtcNow.ToString("o")), "consent[granted_at]");
-        form.Add(new StringContent("en"),         "consent[notice_language]");
-        form.Add(new StringContent(config["SmileId:PolicyUrl"] ?? "https://secureexchange.co.za/privacy"), "consent[notice_privacy_policy_url]");
+        form.Add(new StringContent(JsonSerializer.Serialize(new
+        {
+            granted    = true,
+            granted_at = DateTime.UtcNow.ToString("o"),
+            notice_language = "en",
+            notice_privacy_policy_url = config["SmileId:PolicyUrl"] ?? "https://secureexchange.co.za/privacy"
+        }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower })), "consent");
         form.Add(new StringContent(dealReference), "partner_params[deal_reference]");
 
         try
