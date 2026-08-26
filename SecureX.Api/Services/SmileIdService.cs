@@ -34,10 +34,10 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
         var cleanPhone = phone;
         if (!string.IsNullOrEmpty(cleanPhone))
         {
-            // Remove any spaces or dashes
             cleanPhone = new string(cleanPhone.Where(c => char.IsDigit(c) || c == '+').ToArray());
-            // Ensure it starts with +
-            if (!cleanPhone.StartsWith("+"))
+            if (cleanPhone.StartsWith("0"))
+                cleanPhone = "+27" + cleanPhone[1..];
+            else if (!cleanPhone.StartsWith("+"))
                 cleanPhone = "+" + cleanPhone;
         }
 
