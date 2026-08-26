@@ -1,13 +1,11 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace SecureX.Api.Services;
 
 public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration config, ILogger<SmileIdService> logger)
 {
-    private static readonly JsonSerializerOptions _json = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
     // Submits an Enhanced KYC job. Returns the job_id on success, null on failure.
     public async Task<string?> SubmitEnhancedKycAsync(
@@ -30,39 +28,29 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
         var givenNames = string.Join(' ', nameParts[..^1]);
         var lastName   = nameParts[^1];
 
-        var payload = new
-        {
-            country,
-            id_type    = idType,
-            id_number  = idNumber,
-            consent    = new
-            {
-                granted     = true,
-                granted_at  = DateTime.UtcNow.ToString("o"),
-                notice_language = "en",
-                notice_privacy_policy_url = config["SmileId:PolicyUrl"] ?? "https://secureexchange.co.za/privacy",
-            },
-            user_details = new
-            {
-                given_names  = givenNames,
-                last_name    = lastName,
-                email,
-                phone_number = phone,
-            },
-            callback_url   = callbackUrl,
-            partner_params = new { deal_reference = dealReference },
-        };
-
         var client = httpFactory.CreateClient("SmileId");
-        client.DefaultRequestHeaders.Clear();
-        client.DefaultRequestHeaders.Add("SmileID-Partner-ID", partnerId);
-        client.DefaultRequestHeaders.Add("SmileID-Token", token);
-        client.DefaultRequestHeaders.Add("Accept", "application/json");
+        var form = new MultipartFormDataContent();
+        form.Add(new StringContent(country),      "country");
+        form.Add(new StringContent(idType),       "id_type");
+        form.Add(new StringContent(idNumber),     "id_number");
+        form.Add(new StringContent(givenNames),   "given_names");
+        form.Add(new StringContent(lastName),     "last_name");
+        form.Add(new StringContent(email),        "email");
+        form.Add(new StringContent(phone),        "phone_number");
+        form.Add(new StringContent(callbackUrl),  "callback_url");
+        form.Add(new StringContent("true"),       "consent[granted]");
+        form.Add(new StringContent(DateTime.UtcNow.ToString("o")), "consent[granted_at]");
+        form.Add(new StringContent("en"),         "consent[notice_language]");
+        form.Add(new StringContent(config["SmileId:PolicyUrl"] ?? "https://secureexchange.co.za/privacy"), "consent[notice_privacy_policy_url]");
+        form.Add(new StringContent(dealReference), "partner_params[deal_reference]");
 
         try
         {
-            var body    = new StringContent(JsonSerializer.Serialize(payload, _json), Encoding.UTF8, "application/json");
-            var resp    = await client.PostAsync($"{baseUrl}/v3/enhanced_kyc", body);
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/enhanced_kyc") { Content = form };
+            request.Headers.Add("SmileID-Partner-ID", partnerId);
+            request.Headers.Add("SmileID-Token", token);
+            request.Headers.Add("Accept", "application/json");
+            var resp    = await client.SendAsync(request);
             var content = await resp.Content.ReadAsStringAsync();
 
             if ((int)resp.StatusCode != 202)
