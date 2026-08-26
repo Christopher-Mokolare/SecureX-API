@@ -41,40 +41,39 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
                 cleanPhone = "+" + cleanPhone;
         }
 
-        // curl -F sends parts with no Content-Type header; StringContent adds "text/plain; charset=utf-8"
-        // which SmileID rejects. Use ByteArrayContent to send raw bytes with no content-type.
-        static ByteArrayContent Field(string value)
-        {
-            var c = new ByteArrayContent(Encoding.UTF8.GetBytes(value));
-            c.Headers.ContentType = null;
-            return c;
-        }
+        var userDetails = JsonSerializer.Serialize(new { given_names = givenNames, last_name = lastName, email, phone_number = cleanPhone }, opts);
+        var consent = JsonSerializer.Serialize(new { granted = true, granted_at = now, notice_language = "en", notice_privacy_policy_url = config["SmileId:PolicyUrl"] ?? "https://secureexchange.co.za/privacy" }, opts);
+        var partnerParams = JsonSerializer.Serialize(new { deal_reference = dealReference }, opts);
 
-        var form = new MultipartFormDataContent();
-        form.Add(Field(country), "country");
-        form.Add(Field(idType), "id_type");
-        form.Add(Field(idNumber), "id_number");
-        form.Add(Field(callbackUrl), "callback_url");
-        form.Add(Field(JsonSerializer.Serialize(new
+        // Build raw multipart body manually — C# MultipartFormDataContent quotes the boundary
+        // (boundary="abc") but SmileID requires unquoted (boundary=abc), matching curl -F behavior.
+        var boundary = "----SmileIDBoundary";
+        var sb = new StringBuilder();
+        void AddField(string name, string value)
         {
-            given_names = givenNames,
-            last_name = lastName,
-            email,
-            phone_number = cleanPhone  // ✅ Now includes + prefix
-        }, opts)), "user_details");
-        form.Add(Field(JsonSerializer.Serialize(new
-        {
-            granted = true,
-            granted_at = now,
-            notice_language = "en",
-            notice_privacy_policy_url = config["SmileId:PolicyUrl"] ?? "https://secureexchange.co.za/privacy"
-        }, opts)), "consent");
-        form.Add(Field(JsonSerializer.Serialize(new { deal_reference = dealReference }, opts)), "partner_params");
+            sb.Append($"--{boundary}\r\n");
+            sb.Append($"Content-Disposition: form-data; name=\"{name}\"\r\n\r\n");
+            sb.Append(value);
+            sb.Append("\r\n");
+        }
+        AddField("country", country);
+        AddField("id_type", idType);
+        AddField("id_number", idNumber);
+        AddField("callback_url", callbackUrl);
+        AddField("user_details", userDetails);
+        AddField("consent", consent);
+        AddField("partner_params", partnerParams);
+        sb.Append($"--{boundary}--\r\n");
+
+        var bodyBytes = Encoding.UTF8.GetBytes(sb.ToString());
+        var rawContent = new ByteArrayContent(bodyBytes);
+        rawContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("multipart/form-data");
+        rawContent.Headers.ContentType.Parameters.Add(new System.Net.Http.Headers.NameValueHeaderValue("boundary", boundary));
 
         var client = httpFactory.CreateClient("SmileId");
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/enhanced_kyc") { Content = form };
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/enhanced_kyc") { Content = rawContent };
             request.Headers.Add("SmileID-Token", token);
             var resp = await client.SendAsync(request);
             var content = await resp.Content.ReadAsStringAsync();
@@ -116,17 +115,18 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
 
         try
         {
-            static ByteArrayContent Field(string value)
-            {
-                var c = new ByteArrayContent(Encoding.UTF8.GetBytes(value));
-                c.Headers.ContentType = null;
-                return c;
-            }
+            var boundary = "----SmileIDBoundary";
+            var sb = new StringBuilder();
+            void AddField(string name, string value) { sb.Append($"--{boundary}\r\n"); sb.Append($"Content-Disposition: form-data; name=\"{name}\"\r\n\r\n"); sb.Append(value); sb.Append("\r\n"); }
+            AddField("partner_id", partnerId);
+            AddField("timestamp", timestamp);
+            AddField("signature", signature);
+            sb.Append($"--{boundary}--\r\n");
+            var bodyBytes = Encoding.UTF8.GetBytes(sb.ToString());
+            var content = new ByteArrayContent(bodyBytes);
+            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("multipart/form-data");
+            content.Headers.ContentType.Parameters.Add(new System.Net.Http.Headers.NameValueHeaderValue("boundary", boundary));
             var client = httpFactory.CreateClient("SmileId");
-            var content = new MultipartFormDataContent();
-            content.Add(Field(partnerId), "partner_id");
-            content.Add(Field(timestamp), "timestamp");
-            content.Add(Field(signature), "signature");
             var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/token") { Content = content };
             request.Headers.Add("smileid-api-key", apiKey);
             request.Headers.Add("smileid-partner-id", partnerId);
