@@ -108,6 +108,7 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             content.Add(new StringContent(timestamp),  "timestamp");
             content.Add(new StringContent(signature),  "signature");
             var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/token") { Content = content };
+            request.Headers.Add("smileid-api-key", apiKey);
             var resp       = await client.SendAsync(request);
             var contentStr = await resp.Content.ReadAsStringAsync();
             var result     = JsonSerializer.Deserialize<JsonElement>(contentStr);
