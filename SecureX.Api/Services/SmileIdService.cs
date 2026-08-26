@@ -1,19 +1,19 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+
 namespace SecureX.Api.Services;
 
 public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration config, ILogger<SmileIdService> logger)
 {
-
     // Submits an Enhanced KYC job. Returns the job_id on success, null on failure.
     public async Task<string?> SubmitEnhancedKycAsync(
         string fullName, string idNumber, string email, string phone,
         string dealReference, string country = "ZA", string idType = "NATIONAL_ID")
     {
-        var partnerId  = config["SmileId:PartnerId"] ?? "";
-        var apiKey     = config["SmileId:ApiKey"]    ?? "";
-        var baseUrl    = config["SmileId:BaseUrl"]   ?? "https://api.sandbox.smileidentity.com";
+        var partnerId = config["SmileId:PartnerId"] ?? "";
+        var apiKey = config["SmileId:ApiKey"] ?? "";
+        var baseUrl = config["SmileId:BaseUrl"] ?? "https://api.sandbox.smileidentity.com";
         var callbackUrl = config["SmileId:CallbackUrl"] ?? config["SMILEID_CALLBACK_URL"] ?? "";
 
         var token = await MintTokenAsync(partnerId, apiKey, baseUrl);
@@ -23,12 +23,23 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             return null;
         }
 
-        var nameParts  = fullName.Trim().Split(' ');
+        var nameParts = fullName.Trim().Split(' ');
         var givenNames = string.Join(' ', nameParts[..^1]);
-        var lastName   = nameParts[^1];
+        var lastName = nameParts[^1];
 
         var opts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
         var now = DateTime.UtcNow.ToString("o");
+
+        // ✅ FIX: Normalize phone number to include + prefix
+        var cleanPhone = phone;
+        if (!string.IsNullOrEmpty(cleanPhone))
+        {
+            // Remove any spaces or dashes
+            cleanPhone = new string(cleanPhone.Where(c => char.IsDigit(c) || c == '+').ToArray());
+            // Ensure it starts with +
+            if (!cleanPhone.StartsWith("+"))
+                cleanPhone = "+" + cleanPhone;
+        }
 
         // curl -F sends parts with no Content-Type header; StringContent adds "text/plain; charset=utf-8"
         // which SmileID rejects. Use ByteArrayContent to send raw bytes with no content-type.
@@ -40,20 +51,20 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
         }
 
         var form = new MultipartFormDataContent();
-        form.Add(Field(country),     "country");
-        form.Add(Field(idType),      "id_type");
-        form.Add(Field(idNumber),    "id_number");
+        form.Add(Field(country), "country");
+        form.Add(Field(idType), "id_type");
+        form.Add(Field(idNumber), "id_number");
         form.Add(Field(callbackUrl), "callback_url");
         form.Add(Field(JsonSerializer.Serialize(new
         {
-            given_names  = givenNames,
-            last_name    = lastName,
+            given_names = givenNames,
+            last_name = lastName,
             email,
-            phone_number = phone
+            phone_number = cleanPhone  // ✅ Now includes + prefix
         }, opts)), "user_details");
         form.Add(Field(JsonSerializer.Serialize(new
         {
-            granted    = true,
+            granted = true,
             granted_at = now,
             notice_language = "en",
             notice_privacy_policy_url = config["SmileId:PolicyUrl"] ?? "https://secureexchange.co.za/privacy"
@@ -65,7 +76,7 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
         {
             var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/enhanced_kyc") { Content = form };
             request.Headers.Add("SmileID-Token", token);
-            var resp    = await client.SendAsync(request);
+            var resp = await client.SendAsync(request);
             var content = await resp.Content.ReadAsStringAsync();
 
             if ((int)resp.StatusCode != 202)
@@ -93,8 +104,8 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
     public bool VerifyWebhookSignature(string signature, string timestamp)
     {
         var partnerId = config["SmileId:PartnerId"] ?? "";
-        var apiKey    = config["SmileId:ApiKey"]    ?? "";
-        var expected  = BuildSignature(partnerId, timestamp, apiKey);
+        var apiKey = config["SmileId:ApiKey"] ?? "";
+        var expected = BuildSignature(partnerId, timestamp, apiKey);
         return string.Equals(expected, signature, StringComparison.Ordinal);
     }
 
@@ -111,7 +122,7 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
                 c.Headers.ContentType = null;
                 return c;
             }
-            var client  = httpFactory.CreateClient("SmileId");
+            var client = httpFactory.CreateClient("SmileId");
             var content = new MultipartFormDataContent();
             content.Add(Field(partnerId), "partner_id");
             content.Add(Field(timestamp), "timestamp");
@@ -119,9 +130,9 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/token") { Content = content };
             request.Headers.Add("smileid-api-key", apiKey);
             request.Headers.Add("smileid-partner-id", partnerId);
-            var resp       = await client.SendAsync(request);
+            var resp = await client.SendAsync(request);
             var contentStr = await resp.Content.ReadAsStringAsync();
-            var result     = JsonSerializer.Deserialize<JsonElement>(contentStr);
+            var result = JsonSerializer.Deserialize<JsonElement>(contentStr);
             if (!result.TryGetProperty("token", out var t))
             {
                 logger.LogError("SmileID: token response {Status}: {Body}", resp.StatusCode, contentStr);
