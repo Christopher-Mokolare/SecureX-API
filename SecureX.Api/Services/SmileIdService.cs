@@ -30,26 +30,35 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
         var opts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
         var now = DateTime.UtcNow.ToString("o");
 
+        // curl -F sends parts with no Content-Type header; StringContent adds "text/plain; charset=utf-8"
+        // which SmileID rejects. Use ByteArrayContent to send raw bytes with no content-type.
+        static ByteArrayContent Field(string value)
+        {
+            var c = new ByteArrayContent(Encoding.UTF8.GetBytes(value));
+            c.Headers.ContentType = null;
+            return c;
+        }
+
         var form = new MultipartFormDataContent();
-        form.Add(new StringContent(country),     "country");
-        form.Add(new StringContent(idType),      "id_type");
-        form.Add(new StringContent(idNumber),    "id_number");
-        form.Add(new StringContent(callbackUrl), "callback_url");
-        form.Add(new StringContent(JsonSerializer.Serialize(new
+        form.Add(Field(country),     "country");
+        form.Add(Field(idType),      "id_type");
+        form.Add(Field(idNumber),    "id_number");
+        form.Add(Field(callbackUrl), "callback_url");
+        form.Add(Field(JsonSerializer.Serialize(new
         {
             given_names  = givenNames,
             last_name    = lastName,
             email,
             phone_number = phone
         }, opts)), "user_details");
-        form.Add(new StringContent(JsonSerializer.Serialize(new
+        form.Add(Field(JsonSerializer.Serialize(new
         {
             granted    = true,
             granted_at = now,
             notice_language = "en",
             notice_privacy_policy_url = config["SmileId:PolicyUrl"] ?? "https://secureexchange.co.za/privacy"
         }, opts)), "consent");
-        form.Add(new StringContent(JsonSerializer.Serialize(new { deal_reference = dealReference }, opts)), "partner_params");
+        form.Add(Field(JsonSerializer.Serialize(new { deal_reference = dealReference }, opts)), "partner_params");
 
         var client = httpFactory.CreateClient("SmileId");
         try
@@ -96,11 +105,17 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
 
         try
         {
+            static ByteArrayContent Field(string value)
+            {
+                var c = new ByteArrayContent(Encoding.UTF8.GetBytes(value));
+                c.Headers.ContentType = null;
+                return c;
+            }
             var client  = httpFactory.CreateClient("SmileId");
             var content = new MultipartFormDataContent();
-            content.Add(new StringContent(partnerId),  "partner_id");
-            content.Add(new StringContent(timestamp),  "timestamp");
-            content.Add(new StringContent(signature),  "signature");
+            content.Add(Field(partnerId), "partner_id");
+            content.Add(Field(timestamp), "timestamp");
+            content.Add(Field(signature), "signature");
             var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/token") { Content = content };
             request.Headers.Add("smileid-api-key", apiKey);
             request.Headers.Add("smileid-partner-id", partnerId);
