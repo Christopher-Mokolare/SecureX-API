@@ -46,6 +46,7 @@ cfg["SmileId:PartnerId"]               = cfg["SMILEID_PARTNER_ID"] ?? cfg["Smile
 cfg["SmileId:ApiKey"]                  = cfg["SMILEID_API_KEY"] ?? cfg["SmileId:ApiKey"];
 cfg["SmileId:BaseUrl"]                 = cfg["SMILEID_BASE_URL"] ?? cfg["SmileId:BaseUrl"];
 cfg["SmileId:CallbackUrl"]             = cfg["SMILEID_CALLBACK_URL"] ?? cfg["SmileId:CallbackUrl"];
+cfg["SmileId:SandboxBypass"]           = cfg["SMILEID_SANDBOX_BYPASS"] ?? cfg["SmileId:SandboxBypass"];
 
 // ── Database ─────────────────────────────────────────────────────────────────
 var rawConnStr = builder.Configuration["ConnectionStrings:Default"] ?? "";
