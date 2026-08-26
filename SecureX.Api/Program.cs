@@ -32,17 +32,20 @@ cfg["Ozow:OneApiClientSecret"]         = cfg["OZOW_ONE_API_CLIENT_SECRET"] ?? cf
 cfg["Ozow:OneApiBaseUrl"]              = cfg["OZOW_ONE_API_BASE_URL"] ?? cfg["Ozow:OneApiBaseUrl"];
 cfg["Ozow:ReturnUrl"]                  = cfg["OZOW_RETURN_URL"] ?? cfg["Ozow:ReturnUrl"];
 cfg["ConnectionStrings:Default"]       = cfg["DATABASE_URL"] ?? cfg["ConnectionStrings:Default"];
+cfg["SmileId:PartnerId"]               = cfg["SMILEID_PARTNER_ID"] ?? cfg["SmileId:PartnerId"];
+cfg["SmileId:ApiKey"]                  = cfg["SMILEID_API_KEY"] ?? cfg["SmileId:ApiKey"];
+cfg["SmileId:BaseUrl"]                 = cfg["SMILEID_BASE_URL"] ?? cfg["SmileId:BaseUrl"];
+cfg["SmileId:CallbackUrl"]             = cfg["SMILEID_CALLBACK_URL"] ?? cfg["SmileId:CallbackUrl"];
 
 // ── Database ─────────────────────────────────────────────────────────────────
-var connStr = builder.Configuration["ConnectionStrings:Default"];
+var rawConnStr = builder.Configuration["ConnectionStrings:Default"] ?? "";
+var connStr = rawConnStr.StartsWith("postgresql://") || rawConnStr.StartsWith("postgres://")
+    ? ConvertUriToNpgsql(rawConnStr)
+    : rawConnStr;
 builder.Services.AddDbContext<AppDbContext>(opt =>
 {
-    opt.UseNpgsql(connStr, npg =>
-    {
-        npg.EnableRetryOnFailure(3);
-        if (Environment.GetEnvironmentVariable("DATABASE_SSL") != "false")
-            npg.RemoteCertificateValidationCallback((_, _, _, _) => true);
-    });
+    opt.UseNpgsql(connStr, npg => npg.EnableRetryOnFailure(3));
+    opt.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
 });
 
 // ── JWT Auth ─────────────────────────────────────────────────────────────────
@@ -64,8 +67,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 builder.Services.AddAuthorization();
 
-// ── DataProtection — persist keys to SSM in production ──────────────────────
-if (!builder.Environment.IsDevelopment())
+// ── DataProtection — persist keys to SSM in production (AWS only) ───────────
+if (!builder.Environment.IsDevelopment() && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("AWS_REGION")))
 {
     builder.Services.AddDefaultAWSOptions(builder.Configuration.GetAWSOptions());
     builder.Services.AddAWSService<IAmazonSimpleSystemsManagement>();
@@ -78,12 +81,14 @@ builder.Services.AddScoped<HashService>();
 builder.Services.AddScoped<DealReferenceService>();
 builder.Services.AddScoped<OzowCollectionService>();
 builder.Services.AddScoped<OzowPayoutService>();
+builder.Services.AddScoped<SmileIdService>();
 builder.Services.AddScoped<TransactionService>();
 builder.Services.AddHostedService<ReconciliationService>();
 builder.Services.AddHostedService<OzowPayoutPollerService>();
 builder.Services.AddHostedService<InspectionWindowExpiryService>();
 builder.Services.AddHttpClient("OzowPayout");
 builder.Services.AddHttpClient("OzowCollection");
+builder.Services.AddHttpClient("SmileId");
 
 builder.Services.AddControllers()
     .AddJsonOptions(o =>
@@ -172,3 +177,13 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.Run();
+
+static string ConvertUriToNpgsql(string uri)
+{
+    var u = new Uri(uri);
+    var userInfo = u.UserInfo.Split(':');
+    var db = u.AbsolutePath.TrimStart('/');
+    var query = System.Web.HttpUtility.ParseQueryString(u.Query);
+    var sslMode = query["sslmode"] ?? "require";
+    return $"Host={u.Host};Port={u.Port};Database={db};Username={userInfo[0]};Password={userInfo[1]};SSL Mode={sslMode};Trust Server Certificate=true";
+}
