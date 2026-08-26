@@ -8,7 +8,17 @@ using SecureX.Api.Data;
 using SecureX.Api.Security;
 using SecureX.Api.Services;
 
-var builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    EnvironmentName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"
+});
+
+// Disable file watchers — prevents inotify exhaustion on constrained hosts (Render free tier)
+builder.Configuration.Sources
+    .OfType<Microsoft.Extensions.Configuration.FileConfigurationSource>()
+    .ToList()
+    .ForEach(s => s.ReloadOnChange = false);
 
 // ── Config from env vars (override appsettings) ──────────────────────────────
 builder.Configuration.AddEnvironmentVariables();
