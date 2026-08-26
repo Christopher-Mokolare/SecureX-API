@@ -30,9 +30,11 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
         var signature = Request.Headers["SmileID-Signature"].FirstOrDefault() ?? "";
         var timestamp = Request.Headers["SmileID-Timestamp"].FirstOrDefault() ?? "";
 
-        logger.LogInformation("SmileID webhook sig={Sig} ts={Ts}", signature, timestamp);
+        logger.LogInformation("SmileID webhook sig={Sig} ts={Ts} sandbox={Sandbox}", signature, timestamp, isSandbox);
 
-        if (!smileId.VerifyWebhookSignature(signature, timestamp))
+        // SmileID sandbox does not send signature headers — skip verification in sandbox
+        var isSandbox = (config["SmileId:BaseUrl"] ?? "").Contains("testapi");
+        if (!isSandbox && !smileId.VerifyWebhookSignature(signature, timestamp))
         {
             logger.LogWarning("SmileID webhook: invalid signature");
             return Unauthorized();

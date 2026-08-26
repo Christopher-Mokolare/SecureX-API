@@ -65,9 +65,7 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
         AddField("partner_params", partnerParams);
         sb.Append($"--{boundary}--\r\n");
 
-        var bodyStr = sb.ToString();
-        logger.LogInformation("SmileID KYC body:\n{Body}", bodyStr);
-        var bodyBytes = Encoding.UTF8.GetBytes(bodyStr);
+        var bodyBytes = Encoding.UTF8.GetBytes(sb.ToString());
         var rawContent = new ByteArrayContent(bodyBytes);
         rawContent.Headers.TryAddWithoutValidation("Content-Type", $"multipart/form-data; boundary={boundary}");
 
@@ -78,7 +76,6 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             request.Headers.Add("SmileID-Token", token);
             var resp = await client.SendAsync(request);
             var content = await resp.Content.ReadAsStringAsync();
-            logger.LogInformation("SmileID KYC response {Status}: {Body}", resp.StatusCode, content);
 
             if ((int)resp.StatusCode != 202)
             {
