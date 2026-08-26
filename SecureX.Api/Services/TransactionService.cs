@@ -4,7 +4,7 @@ using SecureX.Api.Models;
 
 namespace SecureX.Api.Services;
 
-public class TransactionService(AppDbContext db, DealReferenceService refService, OzowPayoutService payoutService, IConfiguration config, ILogger<TransactionService> logger, IServiceScopeFactory scopeFactory)
+public class TransactionService(AppDbContext db, DealReferenceService refService, OzowPayoutService payoutService, SmileIdService smileId, IConfiguration config, ILogger<TransactionService> logger, IServiceScopeFactory scopeFactory)
 {
     // ── Fee calculation (matches frontend js/script.js) ──────────────────────
     // Standard:         max(value * 2.5%, R150)
@@ -29,6 +29,10 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
 
     public async Task<Transaction> CreateAsync(CreateTransactionRequest req)
     {
+        // ── Buyer KYC: submit Enhanced KYC job (async — result arrives via webhook) ──
+        if (string.IsNullOrWhiteSpace(req.BuyerIdNumber))
+            throw new InvalidOperationException("Buyer ID number is required for KYC verification");
+
         // Upsert buyer
         var buyer = await db.Users.FirstOrDefaultAsync(u => u.Email == req.BuyerEmail);
         if (buyer is null)
@@ -68,8 +72,27 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
         };
 
         db.Transactions.Add(tx);
-        AppendAudit(tx, null, TransactionStatus.PaymentPending, "system", "Transaction created — awaiting buyer payment");
+        AppendAudit(tx, null, TransactionStatus.PaymentPending, "system", "Transaction created — awaiting buyer KYC");
         await db.SaveChangesAsync();
+
+        // Submit KYC job — result arrives asynchronously via SmileID webhook
+        var jobId = await smileId.SubmitEnhancedKycAsync(
+            req.BuyerFullName, req.BuyerIdNumber, req.BuyerEmail, req.BuyerPhone, tx.DealReference);
+
+        if (jobId is not null)
+        {
+            buyer.SmileIdJobId = jobId;
+            buyer.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            logger.LogInformation("SmileID KYC job submitted: {JobId} for deal {Ref}", jobId, tx.DealReference);
+        }
+        else
+        {
+            logger.LogWarning("SmileID KYC job submission failed for deal {Ref} — KYC status remains Pending", tx.DealReference);
+        }
+
+        tx.Buyer = buyer;
+        tx.Seller = seller;
         return tx;
     }
 
