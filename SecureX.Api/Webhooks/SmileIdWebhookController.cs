@@ -30,6 +30,9 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
         var signature = payload.TryGetProperty("signature", out var sigProp) ? sigProp.GetString() ?? "" : "";
         var timestamp = payload.TryGetProperty("timestamp", out var tsProp)  ? tsProp.GetString()  ?? "" : "";
 
+        logger.LogInformation("SmileID webhook raw body: {Body}", body);
+        logger.LogInformation("SmileID webhook sig={Sig} ts={Ts}", signature, timestamp);
+
         if (!smileId.VerifyWebhookSignature(signature, timestamp))
         {
             logger.LogWarning("SmileID webhook: invalid signature");
