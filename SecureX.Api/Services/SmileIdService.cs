@@ -26,9 +26,9 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             return null;
         }
 
-        var nameParts = fullName.Trim().Split(' ', 2);
-        var givenNames = nameParts[0];
-        var lastName   = nameParts.Length > 1 ? nameParts[1] : "";
+        var nameParts  = fullName.Trim().Split(' ');
+        var givenNames = string.Join(' ', nameParts[..^1]);
+        var lastName   = nameParts[^1];
 
         var payload = new
         {
