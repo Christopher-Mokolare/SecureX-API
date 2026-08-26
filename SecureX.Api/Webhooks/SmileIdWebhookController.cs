@@ -10,7 +10,7 @@ namespace SecureX.Api.Webhooks;
 [ApiController]
 [Route("api/transactions")]
 [IgnoreAntiforgeryToken]
-public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, ILogger<SmileIdWebhookController> logger) : ControllerBase
+public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, IConfiguration config, ILogger<SmileIdWebhookController> logger) : ControllerBase
 {
     private static readonly JsonSerializerOptions _json = new() { PropertyNameCaseInsensitive = true };
 
@@ -30,10 +30,11 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
         var signature = Request.Headers["SmileID-Signature"].FirstOrDefault() ?? "";
         var timestamp = Request.Headers["SmileID-Timestamp"].FirstOrDefault() ?? "";
 
-        logger.LogInformation("SmileID webhook sig={Sig} ts={Ts} sandbox={Sandbox}", signature, timestamp, isSandbox);
-
         // SmileID sandbox does not send signature headers — skip verification in sandbox
         var isSandbox = (config["SmileId:BaseUrl"] ?? "").Contains("testapi");
+
+        logger.LogInformation("SmileID webhook sig={Sig} ts={Ts} sandbox={Sandbox}", signature, timestamp, isSandbox);
+
         if (!isSandbox && !smileId.VerifyWebhookSignature(signature, timestamp))
         {
             logger.LogWarning("SmileID webhook: invalid signature");
