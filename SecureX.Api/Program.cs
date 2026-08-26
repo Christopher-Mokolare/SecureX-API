@@ -45,7 +45,7 @@ var connStr = rawConnStr.StartsWith("postgresql://") || rawConnStr.StartsWith("p
 builder.Services.AddDbContext<AppDbContext>(opt =>
 {
     opt.UseNpgsql(connStr, npg => npg.EnableRetryOnFailure(3));
-    opt.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
+
 });
 
 // ── JWT Auth ─────────────────────────────────────────────────────────────────
