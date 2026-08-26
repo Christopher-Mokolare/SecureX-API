@@ -76,19 +76,32 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
         await db.SaveChangesAsync();
 
         // Submit KYC job — result arrives asynchronously via SmileID webhook
-        var jobId = await smileId.SubmitEnhancedKycAsync(
-            req.BuyerFullName, req.BuyerIdNumber, req.BuyerEmail, req.BuyerPhone, tx.DealReference);
-
-        if (jobId is not null)
+        // In sandbox bypass mode, auto-approve immediately (for FE testing with real IDs)
+        var bypass = config["SmileId:SandboxBypass"] == "true";
+        if (bypass)
         {
-            buyer.SmileIdJobId = jobId;
+            buyer.IdCheckStatus = KycStatus.Approved;
+            buyer.AmlStatus = KycStatus.Approved;
             buyer.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
-            logger.LogInformation("SmileID KYC job submitted: {JobId} for deal {Ref}", jobId, tx.DealReference);
+            logger.LogInformation("SmileID sandbox bypass: auto-approved buyer for deal {Ref}", tx.DealReference);
         }
         else
         {
-            logger.LogWarning("SmileID KYC job submission failed for deal {Ref} — KYC status remains Pending", tx.DealReference);
+            var jobId = await smileId.SubmitEnhancedKycAsync(
+            req.BuyerFullName, req.BuyerIdNumber, req.BuyerEmail, req.BuyerPhone, tx.DealReference);
+
+            if (jobId is not null)
+            {
+                buyer.SmileIdJobId = jobId;
+                buyer.UpdatedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+                logger.LogInformation("SmileID KYC job submitted: {JobId} for deal {Ref}", jobId, tx.DealReference);
+            }
+            else
+            {
+                logger.LogWarning("SmileID KYC job submission failed for deal {Ref} — KYC status remains Pending", tx.DealReference);
+            }
         }
 
         tx.Buyer = buyer;
