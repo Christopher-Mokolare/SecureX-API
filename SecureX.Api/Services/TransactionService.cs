@@ -76,8 +76,9 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
         await db.SaveChangesAsync();
 
         // Submit KYC job — result arrives asynchronously via SmileID webhook
-        // In sandbox bypass mode, auto-approve immediately (for FE testing with real IDs)
-        var bypass = config["SmileId:SandboxBypass"] == "true";
+        // Sandbox bypass: auto-approve only when explicitly enabled AND not in production
+        var bypass = config["SmileId:SandboxBypass"] == "true"
+            && !string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Production", StringComparison.OrdinalIgnoreCase);
         if (bypass)
         {
             buyer.IdCheckStatus = KycStatus.Approved;
