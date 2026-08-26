@@ -28,34 +28,34 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
         var lastName   = nameParts[^1];
 
         var opts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
-        var payload = JsonSerializer.Serialize(new
+        var now = DateTime.UtcNow.ToString("o");
+
+        var form = new MultipartFormDataContent();
+        form.Add(new StringContent(country),     "country");
+        form.Add(new StringContent(idType),      "id_type");
+        form.Add(new StringContent(idNumber),    "id_number");
+        form.Add(new StringContent(callbackUrl), "callback_url");
+        form.Add(new StringContent(JsonSerializer.Serialize(new
         {
-            country,
-            id_type      = idType,
-            id_number    = idNumber,
             given_names  = givenNames,
             last_name    = lastName,
             email,
-            phone_number = phone,
-            callback_url = callbackUrl,
-            consent = new
-            {
-                granted    = true,
-                granted_at = DateTime.UtcNow.ToString("o"),
-                notice_language = "en",
-                notice_privacy_policy_url = config["SmileId:PolicyUrl"] ?? "https://secureexchange.co.za/privacy"
-            },
-            partner_params = new { deal_reference = dealReference }
-        }, opts);
+            phone_number = phone
+        }, opts)), "user_details");
+        form.Add(new StringContent(JsonSerializer.Serialize(new
+        {
+            granted    = true,
+            granted_at = now,
+            notice_language = "en",
+            notice_privacy_policy_url = config["SmileId:PolicyUrl"] ?? "https://secureexchange.co.za/privacy"
+        }, opts)), "consent");
+        form.Add(new StringContent(JsonSerializer.Serialize(new { deal_reference = dealReference }, opts)), "partner_params");
 
         var client = httpFactory.CreateClient("SmileId");
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/enhanced_kyc")
-            {
-                Content = new StringContent(payload, System.Text.Encoding.UTF8, "application/json")
-            };
-            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/enhanced_kyc") { Content = form };
+            request.Headers.Add("SmileID-Token", token);
             var resp    = await client.SendAsync(request);
             var content = await resp.Content.ReadAsStringAsync();
 
