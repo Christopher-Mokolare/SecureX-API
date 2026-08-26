@@ -67,8 +67,9 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
 
         var bodyBytes = Encoding.UTF8.GetBytes(sb.ToString());
         var rawContent = new ByteArrayContent(bodyBytes);
-        rawContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("multipart/form-data");
-        rawContent.Headers.ContentType.Parameters.Add(new System.Net.Http.Headers.NameValueHeaderValue("boundary", boundary));
+        // TryAddWithoutValidation bypasses .NET's automatic boundary quoting
+        // (boundary="abc") so SmileID receives the unquoted form (boundary=abc)
+        rawContent.Headers.TryAddWithoutValidation("Content-Type", $"multipart/form-data; boundary={boundary}");
 
         var client = httpFactory.CreateClient("SmileId");
         try
@@ -124,8 +125,7 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             sb.Append($"--{boundary}--\r\n");
             var bodyBytes = Encoding.UTF8.GetBytes(sb.ToString());
             var content = new ByteArrayContent(bodyBytes);
-            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("multipart/form-data");
-            content.Headers.ContentType.Parameters.Add(new System.Net.Http.Headers.NameValueHeaderValue("boundary", boundary));
+            content.Headers.TryAddWithoutValidation("Content-Type", $"multipart/form-data; boundary={boundary}");
             var client = httpFactory.CreateClient("SmileId");
             var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/token") { Content = content };
             request.Headers.Add("smileid-api-key", apiKey);
