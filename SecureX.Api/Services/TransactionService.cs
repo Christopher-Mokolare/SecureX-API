@@ -91,6 +91,25 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
             logger.LogWarning("SmileID KYC job submission failed for deal {Ref} — KYC status remains Pending", tx.DealReference);
         }
 
+        // AML is a separate watchlist screening and must not be inferred from ID verification.
+        var aml = await smileId.SubmitAmlAsync(req.BuyerFullName, tx.DealReference);
+        if (aml is not null)
+        {
+            buyer.SmileIdAmlJobId = aml.JobId;
+            buyer.AmlStatus = aml.ResultCode switch
+            {
+                "1031" => KycStatus.Approved, // Not found on list
+                "1030" => KycStatus.Failed,   // Found on list
+                _ => KycStatus.Pending
+            };
+            buyer.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+        else
+        {
+            logger.LogWarning("SmileID AML submission failed for deal {Ref} — AML status remains Pending", tx.DealReference);
+        }
+
         tx.Buyer = buyer;
         tx.Seller = seller;
         return tx;

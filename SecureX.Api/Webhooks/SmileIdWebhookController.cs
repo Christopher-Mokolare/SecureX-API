@@ -24,43 +24,51 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
 
         JsonElement payload;
         try { payload = JsonSerializer.Deserialize<JsonElement>(body, _json); }
-        catch { return BadRequest(); }
+        catch (JsonException) { return BadRequest(); }
 
-        // SmileID V3 sends signature in HTTP headers, not the JSON body
-        var signature = Request.Headers["SmileID-Signature"].FirstOrDefault() ?? "";
-        var timestamp = Request.Headers["SmileID-Timestamp"].FirstOrDefault() ?? "";
+        var signature = Request.Headers["Response-Signature"].FirstOrDefault() ?? "";
+        var timestamp = Request.Headers["Response-Timestamp"].FirstOrDefault() ?? "";
+        var isSandbox = (config["SmileId:BaseUrl"] ?? "").Contains("testapi", StringComparison.OrdinalIgnoreCase);
 
-        // SmileID sandbox does not send signature headers — skip verification in sandbox
-        var isSandbox = (config["SmileId:BaseUrl"] ?? "").Contains("testapi");
-
-        logger.LogInformation("SmileID webhook sig={Sig} ts={Ts} sandbox={Sandbox}", signature, timestamp, isSandbox);
-
-        if (!isSandbox && !smileId.VerifyWebhookSignature(signature, timestamp))
+        if (!(isSandbox && string.IsNullOrWhiteSpace(signature) && string.IsNullOrWhiteSpace(timestamp)) &&
+            !smileId.VerifyWebhookSignature(signature, timestamp))
         {
             logger.LogWarning("SmileID webhook: invalid signature");
             return Unauthorized();
         }
 
-        var status = payload.TryGetProperty("status", out var s) ? s.GetString() : null;
-        var jobId  = payload.TryGetProperty("job_id", out var jid) ? jid.GetString() : null;
+        var status = GetString(payload, "status");
+        var jobId = Request.Headers["Job-ID"].FirstOrDefault() ?? GetString(payload, "job_id");
 
-        // Correlate via partner_params.deal_reference
+        // Correlate by SmileID's Job-ID header, with partner metadata as a fallback.
         string? dealReference = null;
-        if (payload.TryGetProperty("partner_params", out var pp) &&
-            pp.TryGetProperty("deal_reference", out var dr))
-            dealReference = dr.GetString();
+        var partnerParams = GetProperty(payload, "partner_params") ?? GetProperty(payload, "PartnerParams");
+        if (partnerParams.HasValue)
+            dealReference = GetString(partnerParams.Value, "deal_reference");
 
-        if (string.IsNullOrEmpty(dealReference))
+        var amlResultCode = GetString(payload, "ResultCode") ?? GetString(payload, "result_code");
+        var amlJobId = partnerParams.HasValue
+            ? GetString(partnerParams.Value, "job_id")
+            : null;
+
+        User? buyer = null;
+        if (!string.IsNullOrWhiteSpace(amlResultCode) && !string.IsNullOrWhiteSpace(amlJobId))
+            buyer = await db.Users.FirstOrDefaultAsync(u => u.SmileIdAmlJobId == amlJobId);
+        else if (!string.IsNullOrWhiteSpace(jobId))
+            buyer = await db.Users.FirstOrDefaultAsync(u => u.SmileIdJobId == jobId);
+
+        if (buyer is null && string.IsNullOrEmpty(dealReference))
         {
             logger.LogWarning("SmileID webhook: no deal_reference in partner_params. JobId={JobId}", jobId);
             return Ok(); // ack to prevent retries
         }
 
-        var buyer = await db.Users
-            .Join(db.Transactions, u => u.Id, t => t.BuyerId, (u, t) => new { u, t })
-            .Where(x => x.t.DealReference == dealReference)
-            .Select(x => x.u)
-            .FirstOrDefaultAsync();
+        if (buyer is null)
+            buyer = await db.Users
+                .Join(db.Transactions, u => u.Id, t => t.BuyerId, (u, t) => new { u, t })
+                .Where(x => x.t.DealReference == dealReference)
+                .Select(x => x.u)
+                .FirstOrDefaultAsync();
 
         if (buyer is null)
         {
@@ -68,18 +76,30 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
             return Ok();
         }
 
+        if (!string.IsNullOrWhiteSpace(amlResultCode))
+        {
+            buyer.AmlStatus = amlResultCode switch
+            {
+                "1031" => KycStatus.Approved,
+                "1030" => KycStatus.Failed,
+                _ => KycStatus.Pending
+            };
+            buyer.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            logger.LogInformation("SmileID AML result for deal {Ref}: {ResultCode}", dealReference, amlResultCode);
+            return Ok();
+        }
+
         switch (status)
         {
             case "clear":
                 buyer.IdCheckStatus = KycStatus.Approved;
-                buyer.AmlStatus     = KycStatus.Approved;
                 logger.LogInformation("SmileID KYC clear for deal {Ref} buyer {BuyerId}", dealReference, buyer.Id);
                 break;
 
             case "block":
-                var reason = payload.TryGetProperty("reason", out var r) ? r.GetString() : "blocked";
+                var reason = GetString(payload, "reason") ?? "blocked";
                 buyer.IdCheckStatus = KycStatus.Failed;
-                buyer.AmlStatus     = KycStatus.Failed;
                 logger.LogWarning("SmileID KYC blocked for deal {Ref}: {Reason}", dealReference, reason);
                 break;
 
@@ -96,5 +116,23 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
         await db.SaveChangesAsync();
 
         return Ok();
+    }
+
+    private static JsonElement? GetProperty(JsonElement element, string name)
+    {
+        foreach (var property in element.EnumerateObject())
+            if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                return property.Value;
+        return null;
+    }
+
+    private static string? GetString(JsonElement element, string name)
+    {
+        var property = GetProperty(element, name);
+        return property.HasValue
+            ? property.Value.ValueKind == JsonValueKind.String
+                ? property.Value.GetString()
+                : property.Value.ToString()
+            : null;
     }
 }

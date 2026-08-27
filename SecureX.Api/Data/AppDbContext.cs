@@ -25,6 +25,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.BankBranchCode).HasColumnName("bank_branch_code");
              e.Property(x => x.BankGroupId).HasColumnName("bank_group_id");
             e.Property(x => x.SmileIdJobId).HasColumnName("smile_id_job_id");
+            e.Property(x => x.SmileIdAmlJobId).HasColumnName("smile_id_aml_job_id");
             e.Property(x => x.BankVerificationStatus)
                 .HasColumnName("bank_verification_status")
                 .HasConversion<string>();

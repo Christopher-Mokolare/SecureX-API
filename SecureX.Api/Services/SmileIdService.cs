@@ -6,144 +6,264 @@ namespace SecureX.Api.Services;
 
 public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration config, ILogger<SmileIdService> logger)
 {
-    // Submits an Enhanced KYC job. Returns the job_id on success, null on failure.
+    public sealed record AmlResult(string JobId, string ResultCode);
+
     public async Task<string?> SubmitEnhancedKycAsync(
         string fullName, string idNumber, string email, string phone,
         string dealReference, string country = "ZA", string idType = "NATIONAL_ID")
     {
         var partnerId = config["SmileId:PartnerId"] ?? "";
         var apiKey = config["SmileId:ApiKey"] ?? "";
-        var baseUrl = config["SmileId:BaseUrl"] ?? "https://api.sandbox.smileidentity.com";
-        var callbackUrl = config["SmileId:CallbackUrl"] ?? config["SMILEID_CALLBACK_URL"] ?? "";
+        var baseUrl = (config["SmileId:BaseUrl"] ?? "https://testapi.smileidentity.com").TrimEnd('/');
+        var callbackUrl = config["SmileId:CallbackUrl"] ?? "";
 
-        var token = await MintTokenAsync(partnerId, apiKey, baseUrl);
-        if (token is null)
+        if (string.IsNullOrWhiteSpace(partnerId) || string.IsNullOrWhiteSpace(apiKey))
         {
-            logger.LogError("SmileID: failed to mint token for deal {Ref}", dealReference);
+            logger.LogError("SmileID credentials are not configured");
             return null;
         }
 
-        logger.LogInformation("SmileID: callbackUrl={CallbackUrl}", callbackUrl);
+        var token = await MintTokenAsync(partnerId, apiKey, baseUrl);
+        if (token is null) return null;
 
-        var nameParts = fullName.Trim().Split(' ');
-        var givenNames = string.Join(' ', nameParts[..^1]);
-        var lastName = nameParts[^1];
+        var nameParts = fullName.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (nameParts.Length == 0)
+        {
+            logger.LogError("SmileID cannot submit KYC with an empty name for deal {Ref}", dealReference);
+            return null;
+        }
 
-        var opts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
+        var givenNames = nameParts.Length > 1 ? string.Join(' ', nameParts[..^1]) : nameParts[0];
+        var lastName = nameParts.Length > 1 ? nameParts[^1] : nameParts[0];
+        var cleanPhone = NormalizePhone(phone);
         var now = DateTime.UtcNow.ToString("o");
+        var opts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
-        var cleanPhone = phone;
-        if (!string.IsNullOrEmpty(cleanPhone))
+        var fields = new List<(string Name, string Value)>
         {
-            cleanPhone = new string(cleanPhone.Where(c => char.IsDigit(c) || c == '+').ToArray());
-            if (cleanPhone.StartsWith("0"))
-                cleanPhone = "+27" + cleanPhone[1..];
-            else if (!cleanPhone.StartsWith("+"))
-                cleanPhone = "+" + cleanPhone;
-        }
+            ("country", country),
+            ("id_type", idType),
+            ("id_number", idNumber),
+            ("user_details", JsonSerializer.Serialize(new
+            {
+                given_names = givenNames,
+                last_name = lastName,
+                email,
+                phone_number = cleanPhone
+            }, opts)),
+            ("consent", JsonSerializer.Serialize(new
+            {
+                granted = true,
+                granted_at = now,
+                notice_language = "EN",
+                notice_privacy_policy_url = config["SmileId:PolicyUrl"] ?? "https://secureexchange.co.za/privacy"
+            }, opts)),
+            ("partner_params", JsonSerializer.Serialize(new { deal_reference = dealReference }, opts))
+        };
+        if (!string.IsNullOrWhiteSpace(callbackUrl))
+            fields.Add(("callback_url", callbackUrl));
 
-        var userDetails = JsonSerializer.Serialize(new { given_names = givenNames, last_name = lastName, email, phone_number = cleanPhone }, opts);
-        var consent = JsonSerializer.Serialize(new { granted = true, granted_at = now, notice_language = "en", notice_privacy_policy_url = config["SmileId:PolicyUrl"] ?? "https://secureexchange.co.za/privacy" }, opts);
-        var partnerParams = JsonSerializer.Serialize(new { deal_reference = dealReference }, opts);
+        using var content = CreateMultipartContent(fields.ToArray());
 
-        // Build raw multipart body manually — C# MultipartFormDataContent quotes the boundary
-        // (boundary="abc") but SmileID requires unquoted (boundary=abc), matching curl -F behavior.
-        var boundary = "----SmileIDBoundary";
-        var sb = new StringBuilder();
-        void AddField(string name, string value)
-        {
-            sb.Append($"--{boundary}\r\n");
-            sb.Append($"Content-Disposition: form-data; name=\"{name}\"\r\n\r\n");
-            sb.Append(value);
-            sb.Append("\r\n");
-        }
-        AddField("country", country);
-        AddField("id_type", idType);
-        AddField("id_number", idNumber);
-        AddField("callback_url", callbackUrl);
-        AddField("user_details", userDetails);
-        AddField("consent", consent);
-        AddField("partner_params", partnerParams);
-        sb.Append($"--{boundary}--\r\n");
-
-        var bodyBytes = Encoding.UTF8.GetBytes(sb.ToString());
-        var rawContent = new ByteArrayContent(bodyBytes);
-        rawContent.Headers.TryAddWithoutValidation("Content-Type", $"multipart/form-data; boundary={boundary}");
-
-        var client = httpFactory.CreateClient("SmileId");
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/enhanced_kyc") { Content = rawContent };
-            request.Headers.Add("SmileID-Token", token);
-            var resp = await client.SendAsync(request);
-            var content = await resp.Content.ReadAsStringAsync();
-
-            if ((int)resp.StatusCode != 202)
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/enhanced_kyc")
             {
-                logger.LogError("SmileID Enhanced KYC rejected {Status}: {Body}", resp.StatusCode, content);
+                Content = content
+            };
+            request.Headers.Add("SmileID-Token", token);
+            request.Headers.Add("SmileID-Partner-ID", partnerId);
+            request.Headers.Add("SmileID-Source-SDK", "rest_api");
+            request.Headers.Add("SmileID-Source-SDK-Version", "1.0.0");
+
+            var response = await httpFactory.CreateClient("SmileId").SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+            if (response.StatusCode != System.Net.HttpStatusCode.Accepted)
+            {
+                logger.LogError("SmileID Enhanced KYC rejected {Status}: {Body}", response.StatusCode, body);
                 return null;
             }
 
-            var result = JsonSerializer.Deserialize<JsonElement>(content);
-            if (result.TryGetProperty("job_id", out var jobId))
+            var result = JsonSerializer.Deserialize<JsonElement>(body);
+            if (result.TryGetProperty("job_id", out var jobId) &&
+                !string.IsNullOrWhiteSpace(jobId.GetString()))
                 return jobId.GetString();
 
-            logger.LogError("SmileID Enhanced KYC: no job_id in 202 response: {Body}", content);
+            logger.LogError("SmileID Enhanced KYC response did not contain job_id");
             return null;
         }
-        catch (Exception ex)
+        catch (HttpRequestException ex)
         {
             logger.LogError(ex, "SmileID Enhanced KYC HTTP error for deal {Ref}", dealReference);
             return null;
         }
+        catch (TaskCanceledException ex)
+        {
+            logger.LogError(ex, "SmileID Enhanced KYC request timed out for deal {Ref}", dealReference);
+            return null;
+        }
+        catch (JsonException ex)
+        {
+            logger.LogError(ex, "SmileID Enhanced KYC returned invalid JSON for deal {Ref}", dealReference);
+            return null;
+        }
     }
 
-    // Verifies an incoming webhook signature.
-    // HMAC-SHA256 of (timestamp + partnerId + "sid_request") using apiKey.
     public bool VerifyWebhookSignature(string signature, string timestamp)
+    {
+        if (string.IsNullOrWhiteSpace(signature) || string.IsNullOrWhiteSpace(timestamp))
+            return false;
+
+        var expected = BuildSignature(
+            config["SmileId:PartnerId"] ?? "",
+            timestamp,
+            config["SmileId:ApiKey"] ?? "");
+
+        return CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(expected),
+            Encoding.UTF8.GetBytes(signature));
+    }
+
+    public async Task<AmlResult?> SubmitAmlAsync(
+        string fullName, string dealReference, string country = "ZA")
     {
         var partnerId = config["SmileId:PartnerId"] ?? "";
         var apiKey = config["SmileId:ApiKey"] ?? "";
-        var expected = BuildSignature(partnerId, timestamp, apiKey);
-        return string.Equals(expected, signature, StringComparison.Ordinal);
+        var baseUrl = (config["SmileId:BaseUrl"] ?? "https://testapi.smileidentity.com").TrimEnd('/');
+        var jobId = Guid.NewGuid().ToString();
+        var userId = Guid.NewGuid().ToString();
+        var timestamp = DateTime.UtcNow.ToString("o");
+        var body = new
+        {
+            partner_id = partnerId,
+            source_sdk = "rest_api",
+            source_sdk_version = "1.0.0",
+            signature = BuildSignature(partnerId, timestamp, apiKey),
+            timestamp,
+            user_id = userId,
+            job_id = jobId,
+            countries = new[] { country },
+            full_name = fullName,
+            strict_match = true,
+            search_existing_user = false,
+            partner_params = new { deal_reference = dealReference, job_type = "10" }
+        };
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v1/aml")
+            {
+                Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
+            };
+            var response = await httpFactory.CreateClient("SmileId").SendAsync(request);
+            var responseBody = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogError("SmileID AML rejected {Status}: {Body}", response.StatusCode, responseBody);
+                return null;
+            }
+
+            var result = JsonSerializer.Deserialize<JsonElement>(responseBody);
+            var resultCode = GetJsonString(result, "ResultCode") ?? GetJsonString(result, "result_code");
+            if (string.IsNullOrWhiteSpace(resultCode))
+            {
+                logger.LogError("SmileID AML response did not contain ResultCode");
+                return null;
+            }
+
+            logger.LogInformation("SmileID AML submitted jobId={JobId} deal={Ref} result={ResultCode}",
+                jobId, dealReference, resultCode);
+            return new AmlResult(jobId, resultCode);
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogError(ex, "SmileID AML HTTP error for deal {Ref}", dealReference);
+            return null;
+        }
+        catch (TaskCanceledException ex)
+        {
+            logger.LogError(ex, "SmileID AML request timed out for deal {Ref}", dealReference);
+            return null;
+        }
+        catch (JsonException ex)
+        {
+            logger.LogError(ex, "SmileID AML returned invalid JSON for deal {Ref}", dealReference);
+            return null;
+        }
     }
 
     private async Task<string?> MintTokenAsync(string partnerId, string apiKey, string baseUrl)
     {
-        var timestamp = DateTime.UtcNow.ToString("o");
-        var signature = BuildSignature(partnerId, timestamp, apiKey);
-
         try
         {
-            var boundary = "----SmileIDBoundary";
-            var sb = new StringBuilder();
-            void AddField(string name, string value) { sb.Append($"--{boundary}\r\n"); sb.Append($"Content-Disposition: form-data; name=\"{name}\"\r\n\r\n"); sb.Append(value); sb.Append("\r\n"); }
-            AddField("partner_id", partnerId);
-            AddField("timestamp", timestamp);
-            AddField("signature", signature);
-            sb.Append($"--{boundary}--\r\n");
-            var bodyBytes = Encoding.UTF8.GetBytes(sb.ToString());
-            var content = new ByteArrayContent(bodyBytes);
-            content.Headers.TryAddWithoutValidation("Content-Type", $"multipart/form-data; boundary={boundary}");
-            var client = httpFactory.CreateClient("SmileId");
-            var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/token") { Content = content };
-            request.Headers.Add("smileid-api-key", apiKey);
-            request.Headers.Add("smileid-partner-id", partnerId);
-            var resp = await client.SendAsync(request);
-            var contentStr = await resp.Content.ReadAsStringAsync();
-            var result = JsonSerializer.Deserialize<JsonElement>(contentStr);
-            if (!result.TryGetProperty("token", out var t))
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/token");
+            request.Headers.Add("SmileID-Api-Key", apiKey);
+            request.Headers.Add("SmileID-Partner-ID", partnerId);
+
+            var response = await httpFactory.CreateClient("SmileId").SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
             {
-                logger.LogError("SmileID: token response {Status}: {Body}", resp.StatusCode, contentStr);
+                logger.LogError("SmileID token request rejected {Status}: {Body}", response.StatusCode, body);
                 return null;
             }
-            return t.GetString();
+
+            var result = JsonSerializer.Deserialize<JsonElement>(body);
+            return result.TryGetProperty("token", out var token) && !string.IsNullOrWhiteSpace(token.GetString())
+                ? token.GetString()
+                : null;
         }
-        catch (Exception ex)
+        catch (HttpRequestException ex)
         {
-            logger.LogError(ex, "SmileID: token mint failed");
+            logger.LogError(ex, "SmileID token request failed");
             return null;
         }
+        catch (TaskCanceledException ex)
+        {
+            logger.LogError(ex, "SmileID token request timed out");
+            return null;
+        }
+        catch (JsonException ex)
+        {
+            logger.LogError(ex, "SmileID token response was invalid JSON");
+            return null;
+        }
+    }
+
+    private static ByteArrayContent CreateMultipartContent(params (string Name, string Value)[] fields)
+    {
+        const string boundary = "----SecureXSmileIdBoundary";
+        var builder = new StringBuilder();
+        foreach (var (name, value) in fields)
+        {
+            builder.Append($"--{boundary}\r\n");
+            builder.Append($"Content-Disposition: form-data; name=\"{name}\"\r\n\r\n");
+            builder.Append(value);
+            builder.Append("\r\n");
+        }
+
+        builder.Append($"--{boundary}--\r\n");
+        var content = new ByteArrayContent(Encoding.UTF8.GetBytes(builder.ToString()));
+        content.Headers.TryAddWithoutValidation("Content-Type", $"multipart/form-data; boundary={boundary}");
+        return content;
+    }
+
+    private static string NormalizePhone(string phone)
+    {
+        var clean = new string(phone.Where(c => char.IsDigit(c) || c == '+').ToArray());
+        if (clean.StartsWith("0")) return "+27" + clean[1..];
+        if (!clean.StartsWith("+") && clean.Length > 0) return "+" + clean;
+        return clean;
+    }
+
+    private static string? GetJsonString(JsonElement element, string propertyName)
+    {
+        foreach (var property in element.EnumerateObject())
+            if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                return property.Value.ValueKind == JsonValueKind.String
+                    ? property.Value.GetString()
+                    : property.Value.ToString();
+        return null;
     }
 
     private static string BuildSignature(string partnerId, string timestamp, string apiKey)
