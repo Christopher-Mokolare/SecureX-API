@@ -157,7 +157,10 @@ public class TransactionsController(TransactionService txService, AppDbContext d
     [HttpPost("{id:guid}/payment-link")]
     public async Task<IActionResult> PaymentLink(Guid id)
     {
-        var tx = await db.Transactions.Include(t => t.Buyer).FirstOrDefaultAsync(t => t.Id == id);
+        var tx = await db.Transactions
+            .Include(t => t.Buyer)
+            .Include(t => t.Seller)
+            .FirstOrDefaultAsync(t => t.Id == id);
         if (tx is null) return NotFound();
 
         if (tx.Status != TransactionStatus.PaymentPending)
