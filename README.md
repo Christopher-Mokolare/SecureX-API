@@ -2,6 +2,9 @@
 
 Escrow platform backend — ASP.NET Core 8, PostgreSQL (RDS), Ozow payments.
 
+See [SECUREX_WORKFLOW.md](SECUREX_WORKFLOW.md) for the complete product and
+technical transaction workflow.
+
 ## Stack
 
 | Layer | Technology |
