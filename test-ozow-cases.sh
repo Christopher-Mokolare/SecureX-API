@@ -10,22 +10,26 @@
 set -euo pipefail
 
 # ── Config ────────────────────────────────────────────────────────────────────
-API_BASE="https://api.secureexchange.co.za"
+API_BASE="${API_BASE:-https://securex-api-vjf3.onrender.com}"
 PAYOUT_BASE="https://stagingpayoutsapi.ozow.com/v1"
 MOCK_BASE="https://stagingpayoutsapi.ozow.com/mock/v1"
 
 SITE_CODE="${OZOW_SITE_CODE:-SEC-SEC-004}"
 PAYOUT_API_KEY="${OZOW_PAYOUT_API_KEY:-}"
+DECRYPTION_KEY="${OZOW_ACCOUNT_NUMBER_DECRYPTION_KEY:-}"
+NOTIFY_URL="${OZOW_NOTIFY_URL:-$API_BASE/securex/payout-notification}"
+VERIFY_URL="${OZOW_VERIFY_URL:-$API_BASE/securex/payout-verify}"
 
 FNB_BANK_ID="4816019c-3314-4c80-8b6b-b2cd16dcc4ec"
 FNB_BRANCH="250655"
 VALID_ACCOUNT="62000000000"
-INVALID_ACCOUNT="12345678"
+INVALID_ACCOUNT="1234567890"
 
-PGHOST="securex-db.chiwk8mqor05.af-south-1.rds.amazonaws.com"
-PGUSER="securex"
-PGDB="securex"
-export PGPASSWORD='SecureX2025!'
+PGHOST="${PGHOST:-}"
+PGUSER="${PGUSER:-}"
+PGDB="${PGDB:-}"
+PGPASSWORD="${PGPASSWORD:-}"
+export PGHOST PGUSER PGDB PGPASSWORD
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 PASS=0; FAIL=0
@@ -42,6 +46,49 @@ require_api_key() {
     echo "   export OZOW_PAYOUT_API_KEY=your_key && bash test-ozow-cases.sh"
     exit 1
   fi
+}
+
+require_direct_payout_config() {
+  if [ -z "$DECRYPTION_KEY" ]; then
+    echo "OZOW_ACCOUNT_NUMBER_DECRYPTION_KEY is required for direct RequestPayout cases" >&2
+    exit 1
+  fi
+  command -v openssl >/dev/null 2>&1 || { echo "openssl is required" >&2; exit 1; }
+  command -v xxd >/dev/null 2>&1 || { echo "xxd is required" >&2; exit 1; }
+}
+
+sha512_lower() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | shasum -a 512 | awk '{print $1}'
+}
+
+encrypt_account() {
+  local account=$1 ref=$2 cents=$3 key key_hex iv_hex
+  key=$DECRYPTION_KEY
+  while [ "${#key}" -lt 32 ]; do key="${key}${DECRYPTION_KEY}"; done
+  key="${key:0:32}"
+  key_hex="$(printf '%s' "$key" | xxd -p -c 256)"
+  iv_hex="$(sha512_lower "${ref}${cents}${DECRYPTION_KEY}" | cut -c1-32)"
+  printf '%s' "$account" | openssl enc -aes-256-cbc -K "$key_hex" -iv "$iv_hex" -a -A 2>/dev/null
+}
+
+request_payout_body() {
+  local amount=$1 ref=$2 account=$3 cents encrypted customer_ref hash
+  cents="$(awk -v amount="$amount" 'BEGIN { printf "%.0f", amount * 100 }')"
+  encrypted="$(encrypt_account "$account" "$ref" "$cents")"
+  customer_ref="${ref:0:20}"
+  hash="$(sha512_lower "${SITE_CODE}${cents}${ref}${customer_ref}false${NOTIFY_URL}${VERIFY_URL}${FNB_BANK_ID}${encrypted}${FNB_BRANCH}${PAYOUT_API_KEY}")"
+  jq -n \
+    --arg siteCode "$SITE_CODE" --arg merchantReference "$ref" \
+    --arg customerBankReference "$customer_ref" --arg notifyUrl "$NOTIFY_URL" \
+    --arg verifyUrl "$VERIFY_URL" --arg bankGroupId "$FNB_BANK_ID" \
+    --arg accountNumber "$encrypted" --arg branchCode "$FNB_BRANCH" \
+    --arg hashCheck "$hash" --argjson amount "$amount" '{
+      siteCode: $siteCode, amount: $amount, merchantReference: $merchantReference,
+      customerBankReference: $customerBankReference, isRtc: false,
+      notifyUrl: $notifyUrl, verifyUrl: $verifyUrl,
+      bankingDetails: { bankGroupId: $bankGroupId, accountNumber: $accountNumber, branchCode: $branchCode },
+      hashCheck: $hashCheck
+    }'
 }
 
 get_token() {
@@ -61,9 +108,10 @@ create_ready_transaction() {
     -H "Authorization: Bearer $token" \
     -H "Content-Type: application/json" \
     -d "{
-      \"buyerFullName\": \"Test Buyer\",
-      \"buyerEmail\": \"buyer${ts}@test.co.za\",
+      \"buyerFullName\": \"Amina Fatou Clearwater\",
+      \"buyerEmail\": \"amina.clearwater@example.com\",
       \"buyerPhone\": \"0821234567\",
+      \"buyerIdNumber\": \"0000000000000\",
       \"sellerFullName\": \"Test Seller\",
       \"sellerEmail\": \"seller${ts}@test.co.za\",
       \"sellerPhone\": \"0829876543\",
@@ -94,6 +142,13 @@ create_ready_transaction() {
       \"bankGroupId\": \"$FNB_BANK_ID\",
       \"idNumber\": \"8001015009087\"
     }" > /dev/null
+
+  if [ -z "$PGHOST" ] || [ -z "$PGUSER" ] || [ -z "$PGDB" ] || [ -z "$PGPASSWORD" ]; then
+    echo "Database connection variables are required to advance a transaction to payout state." >&2
+    echo "Set PGHOST, PGUSER, PGDB, and PGPASSWORD without committing them." >&2
+    echo "null null null"
+    return
+  fi
 
   psql -h "$PGHOST" -p 5432 -U "$PGUSER" -d "$PGDB" --set=sslmode=require -q \
     -c "UPDATE transactions SET status = 'FundsSecured', version = version + 1, updated_at = NOW() WHERE \"Id\" = '$tx_id';" 2>/dev/null
@@ -137,9 +192,17 @@ mock_config_base() {
   echo "$MOCK_BASE/settestconfiguration?siteCode=$SITE_CODE"
 }
 
+get_test_config() {
+  curl -sS --fail-with-body \
+    -H "SiteCode: $SITE_CODE" -H "ApiKey: $PAYOUT_API_KEY" \
+    "$MOCK_BASE/gettestconfiguration?siteCode=$SITE_CODE"
+}
+
 set_test_config() {
   local field=$1
   local body
+  echo "  Before configuration:"
+  get_test_config | jq .
   body=$(cat <<EOF
 {
   "siteCode": "$SITE_CODE",
@@ -149,15 +212,18 @@ set_test_config() {
   "isPayoutMismatch": false,
   "isNotVerifiedResponse": false,
   "isAccountNumberDecryptionKeyMissing": false,
-  "hasRetriedCountBeenExceeded": false
+  "hasRetryCountBeenExceeded": false
 }
 EOF
 )
   body=$(echo "$body" | jq ".$field = true")
-  curl -s -X POST \
+  curl -sS --fail-with-body -X POST \
     -H "SiteCode: $SITE_CODE" -H "ApiKey: $PAYOUT_API_KEY" \
     -H "Content-Type: application/json" \
     -d "$body" "$(mock_config_base)"
+  echo ""
+  echo "  After configuration:"
+  get_test_config | jq .
 }
 
 reset_test_config() {
@@ -172,7 +238,7 @@ reset_test_config() {
       \"isPayoutMismatch\": false,
       \"isNotVerifiedResponse\": false,
       \"isAccountNumberDecryptionKeyMissing\": false,
-      \"hasRetriedCountBeenExceeded\": false
+      \"hasRetryCountBeenExceeded\": false
     }" "$(mock_config_base)" > /dev/null
 }
 
@@ -217,21 +283,9 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "live" ]; then
       fail "Case 1: Ozow accepted R0.50 — expected rejection. PayoutId=$PAYOUT_ID"
     fi
 
+    require_direct_payout_config
     info "Direct Ozow API test for minimum validation:"
-    DIRECT_RESP=$(ozow_post "requestpayout" "{
-      \"siteCode\": \"$SITE_CODE\",
-      \"amount\": 0.50,
-      \"merchantReference\": \"MIN-TEST-$(date +%s)\",
-      \"customerBankReference\": \"MINTEST\",
-      \"isRtc\": false,
-      \"notifyUrl\": \"https://api.secureexchange.co.za/securex/payout-notification\",
-      \"bankingDetails\": {
-        \"bankGroupId\": \"$FNB_BANK_ID\",
-        \"accountNumber\": \"dummyencrypted\",
-        \"branchCode\": \"$FNB_BRANCH\"
-      },
-      \"hashCheck\": \"dummy\"
-    }")
+    DIRECT_RESP=$(ozow_post "requestpayout" "$(request_payout_body 0.50 "MIN-TEST-$(date +%s)" "$VALID_ACCOUNT")")
     echo "  Response: $DIRECT_RESP"
   fi
 
@@ -258,21 +312,9 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "live" ]; then
       fail "Case 2: Ozow accepted R21 — expected rejection. PayoutId=$PAYOUT_ID"
     fi
 
+    require_direct_payout_config
     info "Direct Ozow API test for maximum validation:"
-    DIRECT_RESP=$(ozow_post "requestpayout" "{
-      \"siteCode\": \"$SITE_CODE\",
-      \"amount\": 21.00,
-      \"merchantReference\": \"MAX-TEST-$(date +%s)\",
-      \"customerBankReference\": \"MAXTEST\",
-      \"isRtc\": false,
-      \"notifyUrl\": \"https://api.secureexchange.co.za/securex/payout-notification\",
-      \"bankingDetails\": {
-        \"bankGroupId\": \"$FNB_BANK_ID\",
-        \"accountNumber\": \"dummyencrypted\",
-        \"branchCode\": \"$FNB_BRANCH\"
-      },
-      \"hashCheck\": \"dummy\"
-    }")
+    DIRECT_RESP=$(ozow_post "requestpayout" "$(request_payout_body 21.00 "MAX-TEST-$(date +%s)" "$VALID_ACCOUNT")")
     echo "  Response: $DIRECT_RESP"
   fi
 
