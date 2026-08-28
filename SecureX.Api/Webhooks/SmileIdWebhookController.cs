@@ -46,6 +46,49 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
         if (partnerParams.HasValue)
             dealReference = GetString(partnerParams.Value, "deal_reference");
 
+        var verificationType = partnerParams.HasValue
+            ? GetString(partnerParams.Value, "verification_type")
+            : null;
+        var internalReference = partnerParams.HasValue
+            ? GetString(partnerParams.Value, "internal_reference")
+            : null;
+
+        if (verificationType == "seller_liveness")
+        {
+            var sellerTransaction = Guid.TryParse(internalReference, out var txId)
+                ? await db.Transactions.Include(t => t.Seller).FirstOrDefaultAsync(t => t.Id == txId)
+                : await db.Transactions.Include(t => t.Seller)
+                    .FirstOrDefaultAsync(t => t.DealReference == dealReference);
+
+            if (sellerTransaction?.Seller is null)
+            {
+                logger.LogWarning("SmileID seller liveness webhook: transaction not found for {Ref}", dealReference);
+                return Ok();
+            }
+
+            switch (status)
+            {
+                case "clear":
+                    sellerTransaction.Seller.IdCheckStatus = KycStatus.Approved;
+                    sellerTransaction.Seller.LivenessStatus = KycStatus.Approved;
+                    break;
+                case "block":
+                    sellerTransaction.Seller.IdCheckStatus = KycStatus.Failed;
+                    sellerTransaction.Seller.LivenessStatus = KycStatus.Failed;
+                    break;
+                case "error":
+                    logger.LogError("SmileID seller liveness error for deal {Ref}", dealReference);
+                    return Ok();
+                default:
+                    logger.LogWarning("SmileID seller liveness unknown status '{Status}' for deal {Ref}", status, dealReference);
+                    return Ok();
+            }
+
+            sellerTransaction.Seller.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            return Ok();
+        }
+
         var amlResultCode = GetString(payload, "ResultCode") ?? GetString(payload, "result_code");
         var amlJobId = partnerParams.HasValue
             ? GetString(partnerParams.Value, "job_id")
@@ -128,6 +171,19 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
 
     private static string? GetString(JsonElement element, string name)
     {
+        if (element.ValueKind == JsonValueKind.String)
+        {
+            try
+            {
+                using var parsed = JsonDocument.Parse(element.GetString() ?? "");
+                return GetString(parsed.RootElement, name);
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
+
         var property = GetProperty(element, name);
         return property.HasValue
             ? property.Value.ValueKind == JsonValueKind.String

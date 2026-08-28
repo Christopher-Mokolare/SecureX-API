@@ -35,6 +35,7 @@ public class UserResponse
     public string BankVerificationStatus { get; set; } = "";
     public string IdCheckStatus { get; set; } = "";
     public string AmlStatus { get; set; } = "";
+    public string LivenessStatus { get; set; } = "";
 }
 
 // ── Transactions ─────────────────────────────────────────────────────────────

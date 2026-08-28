@@ -55,6 +55,9 @@ public class UsersController(AppDbContext db, IHttpClientFactory httpFactory, IC
             Email = user.Email,
             Phone = user.Phone,
             BankVerificationStatus = user.BankVerificationStatus.ToString(),
+            IdCheckStatus = user.IdCheckStatus.ToString(),
+            AmlStatus = user.AmlStatus.ToString(),
+            LivenessStatus = user.LivenessStatus.ToString(),
         });
     }
 

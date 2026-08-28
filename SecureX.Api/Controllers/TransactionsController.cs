@@ -10,7 +10,7 @@ namespace SecureX.Api.Controllers;
 [Route("api/transactions")]
 [Microsoft.AspNetCore.Authorization.Authorize]
 [IgnoreAntiforgeryToken]
-public class TransactionsController(TransactionService txService, AppDbContext db, OzowCollectionService collectionService) : ControllerBase
+public class TransactionsController(TransactionService txService, AppDbContext db, OzowCollectionService collectionService, IConfiguration config) : ControllerBase
 {
     // ── POST /api/transactions — submit deal form ────────────────────────────
     [HttpPost]
@@ -223,13 +223,44 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         if (tx is null) return NotFound();
         if (tx.Seller is null) return BadRequest(new ErrorResponse { Error = "Seller not found" });
 
-        tx.Seller.IdCheckStatus = KycStatus.Approved;
-        tx.Seller.AmlStatus = KycStatus.Approved;
-        tx.Seller.BankVerificationStatus = KycStatus.Approved;
-        tx.Seller.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync();
+        if (string.IsNullOrWhiteSpace(tx.Seller.IdNumber))
+            return BadRequest(new ErrorResponse { Error = "Seller ID number is required before verification" });
 
-        return Ok(new { status = "Approved" });
+        if (tx.Seller.IdCheckStatus == KycStatus.Approved &&
+            tx.Seller.AmlStatus == KycStatus.Approved &&
+            tx.Seller.LivenessStatus == KycStatus.Approved)
+            return Ok(new { status = "Approved" });
+
+        var token = await txService.CreateSellerLivenessTokenAsync(tx);
+        if (token is null)
+            return StatusCode(502, new ErrorResponse { Error = "Unable to start SmileID liveness verification" });
+
+        var baseUrl = config["SmileId:BaseUrl"] ?? "";
+        return Ok(new
+        {
+            token,
+            product = "biometric_kyc",
+            environment = baseUrl.Contains("testapi", StringComparison.OrdinalIgnoreCase) ||
+                          baseUrl.Contains("sandbox", StringComparison.OrdinalIgnoreCase)
+                ? "sandbox"
+                : "production",
+            callbackUrl = config["SmileId:CallbackUrl"] ?? "",
+            partnerId = config["SmileId:PartnerId"] ?? "",
+            userDetails = new
+            {
+                given_names = GetGivenNames(tx.Seller.FullName),
+                last_name = GetLastName(tx.Seller.FullName),
+                email = tx.Seller.Email,
+                phone_number = tx.Seller.Phone
+            },
+            idInfo = new { id_number = tx.Seller.IdNumber },
+            partnerParams = new
+            {
+                internal_reference = tx.Id.ToString(),
+                deal_reference = tx.DealReference,
+                verification_type = "seller_liveness"
+            }
+        });
     }
 
     private static UserResponse MapUser(User u) => new()
@@ -241,5 +272,18 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         BankVerificationStatus = u.BankVerificationStatus.ToString(),
         IdCheckStatus = u.IdCheckStatus.ToString(),
         AmlStatus = u.AmlStatus.ToString(),
+        LivenessStatus = u.LivenessStatus.ToString(),
     };
+
+    private static string GetGivenNames(string fullName)
+    {
+        var parts = fullName.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length > 1 ? string.Join(' ', parts[..^1]) : fullName.Trim();
+    }
+
+    private static string GetLastName(string fullName)
+    {
+        var parts = fullName.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length > 1 ? parts[^1] : fullName.Trim();
+    }
 }

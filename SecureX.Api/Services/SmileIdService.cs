@@ -8,6 +8,21 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
 {
     public sealed record AmlResult(string JobId, string ResultCode);
 
+    public async Task<string?> CreateBiometricKycTokenAsync()
+    {
+        var partnerId = config["SmileId:PartnerId"] ?? "";
+        var apiKey = config["SmileId:ApiKey"] ?? "";
+        var baseUrl = (config["SmileId:BaseUrl"] ?? "https://testapi.smileidentity.com").TrimEnd('/');
+
+        if (string.IsNullOrWhiteSpace(partnerId) || string.IsNullOrWhiteSpace(apiKey))
+        {
+            logger.LogError("SmileID credentials are not configured");
+            return null;
+        }
+
+        return await MintTokenAsync(partnerId, apiKey, baseUrl);
+    }
+
     public async Task<string?> SubmitEnhancedKycAsync(
         string fullName, string idNumber, string email, string phone,
         string dealReference, string country = "ZA", string idType = "NATIONAL_ID")

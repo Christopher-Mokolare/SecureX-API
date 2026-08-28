@@ -6,6 +6,32 @@ namespace SecureX.Api.Services;
 
 public class TransactionService(AppDbContext db, DealReferenceService refService, OzowPayoutService payoutService, SmileIdService smileId, IConfiguration config, ILogger<TransactionService> logger, IServiceScopeFactory scopeFactory)
 {
+    public async Task<string?> CreateSellerLivenessTokenAsync(Transaction tx)
+    {
+        if (tx.Seller is null)
+            return null;
+
+        if (tx.Seller.AmlStatus == KycStatus.Pending &&
+            string.IsNullOrWhiteSpace(tx.Seller.SmileIdAmlJobId))
+        {
+            var aml = await smileId.SubmitAmlAsync(tx.Seller.FullName, tx.DealReference);
+            if (aml is not null)
+            {
+                tx.Seller.SmileIdAmlJobId = aml.JobId;
+                tx.Seller.AmlStatus = aml.ResultCode switch
+                {
+                    "1031" => KycStatus.Approved,
+                    "1030" => KycStatus.Failed,
+                    _ => KycStatus.Pending
+                };
+                tx.Seller.UpdatedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+            }
+        }
+
+        return await smileId.CreateBiometricKycTokenAsync();
+    }
+
     // ── Fee calculation (matches frontend js/script.js) ──────────────────────
     // Standard:         max(value * 2.5%, R150)
     // VerifiedExpress:  max(value * 1.5%, R150) + R250
@@ -260,6 +286,15 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
             if (seller is null)
             {
                 logger.LogError("TriggerPayout: seller {SellerId} not found for {Ref}", tx.SellerId, tx.DealReference);
+                return;
+            }
+
+            if (seller.IdCheckStatus != KycStatus.Approved ||
+                seller.AmlStatus != KycStatus.Approved ||
+                seller.LivenessStatus != KycStatus.Approved)
+            {
+                logger.LogWarning("TriggerPayout: seller verification incomplete for {Ref}. KYC={Kyc} AML={Aml} Liveness={Liveness}",
+                    tx.DealReference, seller.IdCheckStatus, seller.AmlStatus, seller.LivenessStatus);
                 return;
             }
 
