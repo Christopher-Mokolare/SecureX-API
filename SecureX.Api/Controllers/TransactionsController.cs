@@ -167,9 +167,9 @@ public class TransactionsController(TransactionService txService, AppDbContext d
             return BadRequest(new ErrorResponse { Error = "Buyer KYC has not been approved yet" });
 
         var configuredReturnUrl = config["Ozow:ReturnUrl"] ?? "https://secureexchange.co.za/payment-return";
-        var state = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(
-            $"{tx.Id}|{tx.SellerId}|{tx.Seller?.Email ?? ""}"))
-            .Replace("+", "-").Replace("/", "_").TrimEnd('=');
+        // Ozow Optional1 is limited to 50 characters; the frontend stores the
+        // full seller state before redirecting and uses this transaction ID as fallback.
+        var state = tx.Id.ToString();
 
         var redirectUrl = await collectionService.CreatePaymentAsync(
             tx.DealReference, tx.TotalCheckoutAmount, configuredReturnUrl, state);
