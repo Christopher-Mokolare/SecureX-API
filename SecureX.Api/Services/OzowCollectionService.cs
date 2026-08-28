@@ -20,12 +20,12 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
 
     private string BankRefPrefix => config["Ozow:BankRefPrefix"] ?? "";
 
-    public async Task<string?> CreatePaymentAsync(string dealReference, decimal totalAmount, string? returnUrl = null)
+    public async Task<string?> CreatePaymentAsync(string dealReference, decimal totalAmount, string? returnUrl = null, string? optional1 = null)
     {
         var amount   = totalAmount.ToString("F2");
         var bankRef  = SanitiseRef(BankRefPrefix + dealReference);
         var isTest   = config["Ozow:IsTest"] ?? "true";
-        var opt      = "";
+        var opt      = optional1 ?? "";
         var effectiveReturnUrl = returnUrl ?? ReturnUrl;
 
         var hash = BuildHash(SiteCode, "ZA", "ZAR", amount, dealReference, bankRef,

@@ -167,20 +167,24 @@ public class TransactionsController(TransactionService txService, AppDbContext d
             return BadRequest(new ErrorResponse { Error = "Buyer KYC has not been approved yet" });
 
         var configuredReturnUrl = config["Ozow:ReturnUrl"] ?? "https://secureexchange.co.za/payment-return";
-        var separator = configuredReturnUrl.Contains('?') ? "&" : "?";
-        var returnUrl = string.Concat(
-            configuredReturnUrl,
-            separator,
-            "txId=", Uri.EscapeDataString(tx.Id.ToString()),
-            "&sellerId=", Uri.EscapeDataString(tx.SellerId.ToString()),
-            "&sellerEmail=", Uri.EscapeDataString(tx.Seller?.Email ?? ""));
+        var state = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(
+            $"{tx.Id}|{tx.SellerId}|{tx.Seller?.Email ?? ""}"))
+            .Replace("+", "-").Replace("/", "_").TrimEnd('=');
 
         var redirectUrl = await collectionService.CreatePaymentAsync(
-            tx.DealReference, tx.TotalCheckoutAmount, returnUrl);
+            tx.DealReference, tx.TotalCheckoutAmount, configuredReturnUrl, state);
         if (redirectUrl is null)
             return StatusCode(502, new ErrorResponse { Error = "Failed to create Ozow payment" });
 
-        return Ok(new { dealReference = tx.DealReference, totalAmount = tx.TotalCheckoutAmount, redirectUrl });
+        return Ok(new
+        {
+            txId = tx.Id,
+            dealReference = tx.DealReference,
+            totalAmount = tx.TotalCheckoutAmount,
+            sellerId = tx.SellerId,
+            sellerEmail = tx.Seller?.Email ?? "",
+            redirectUrl
+        });
     }
 
     // ── GET /api/transactions/fee-preview ────────────────────────────────────
