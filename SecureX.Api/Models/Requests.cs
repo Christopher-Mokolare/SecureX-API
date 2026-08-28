@@ -33,6 +33,7 @@ public class PayoutVerifyRequest
     [JsonPropertyName("customerBankReference")] public string CustomerBankReference { get; set; } = "";
     [JsonPropertyName("isRtc")] public bool IsRtc { get; set; }
     [JsonPropertyName("notifyUrl")] public string NotifyUrl { get; set; } = "";
+    [JsonPropertyName("verifyUrl")] public string VerifyUrl { get; set; } = "";
     [JsonPropertyName("bankingDetails")] public BankingDetails? BankingDetails { get; set; }
     [JsonPropertyName("hashCheck")] public string HashCheck { get; set; } = "";
 }
@@ -113,4 +114,3 @@ public class AdvanceStateRequest
     public string? Details { get; set; }
     public int ExpectedVersion { get; set; }
 }
-

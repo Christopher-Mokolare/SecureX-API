@@ -29,7 +29,7 @@ public class HashService
         var input = string.Concat(
             req.PayoutId, req.SiteCode, cents,
             req.MerchantReference, req.CustomerBankReference,
-            req.IsRtc.ToString().ToLowerInvariant(), req.NotifyUrl,
+            req.IsRtc.ToString().ToLowerInvariant(), req.NotifyUrl, req.VerifyUrl,
             req.BankingDetails?.BankGroupId, req.BankingDetails?.AccountNumber,
             req.BankingDetails?.BranchCode, apiKey);
 
@@ -64,14 +64,34 @@ public class HashService
     public static (int status, int subStatus) ReadStatus(PayoutNotificationRequest req)
     {
         int s = 0;
+        int ss = req.PayoutSubStatus ?? req.SubStatus ?? 0;
         if (req.PayoutStatus is JsonElement el)
         {
             if (el.ValueKind == JsonValueKind.Number) s = el.GetInt32();
             else if (el.ValueKind == JsonValueKind.Object)
-                s = el.TryGetProperty("status", out var sp) ? sp.GetInt32() : 0;
+            {
+                if (TryGetPropertyIgnoreCase(el, "status", out var sp) && sp.ValueKind == JsonValueKind.Number)
+                    s = sp.GetInt32();
+                if (TryGetPropertyIgnoreCase(el, "subStatus", out var ssp) && ssp.ValueKind == JsonValueKind.Number)
+                    ss = ssp.GetInt32();
+            }
             // string like "Complete" — leave as 0, hash will fail and be rejected
         }
-        var ss = req.PayoutSubStatus ?? req.SubStatus ?? 0;
         return (s, ss);
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement element, string name, out JsonElement value)
+    {
+        foreach (var property in element.EnumerateObject())
+        {
+            if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
     }
 }

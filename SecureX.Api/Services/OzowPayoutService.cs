@@ -22,7 +22,8 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
         string plainAccountNumber,
         string branchCode,
         string encryptionKey,
-        string notifyUrl)
+        string notifyUrl,
+        string verifyUrl)
     {
         var siteCode  = config["Ozow:SiteCode"]!;
         var apiKey    = config["Ozow:PayoutApiKey"]!;
@@ -34,7 +35,7 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
         var customerRef = SanitiseBankRef(merchantReference);
 
         var hash = BuildHash(siteCode, amountCents, merchantReference, customerRef,
-            isRtc, notifyUrl, bankGroupId, encryptedAccount, branchCode, apiKey);
+            isRtc, notifyUrl, verifyUrl, bankGroupId, encryptedAccount, branchCode, apiKey);
 
         var body = new
         {
@@ -44,6 +45,7 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
             customerBankReference = customerRef,
             isRtc,
             notifyUrl,
+            verifyUrl,
             bankingDetails = new { bankGroupId, accountNumber = encryptedAccount, branchCode },
             hashCheck     = hash,
         };
@@ -119,12 +121,12 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
 
     private static string BuildHash(
         string siteCode, long amountCents, string merchantRef, string customerRef,
-        bool isRtc, string notifyUrl, string bankGroupId, string accountNumber,
+        bool isRtc, string notifyUrl, string verifyUrl, string bankGroupId, string accountNumber,
         string branchCode, string apiKey)
     {
         var raw = string.Concat(
             siteCode, amountCents, merchantRef, customerRef,
-            isRtc.ToString().ToLowerInvariant(), notifyUrl,
+            isRtc.ToString().ToLowerInvariant(), notifyUrl, verifyUrl,
             bankGroupId, accountNumber, branchCode, apiKey);
 
         var hash = SHA512.HashData(Encoding.UTF8.GetBytes(raw.ToLowerInvariant()));

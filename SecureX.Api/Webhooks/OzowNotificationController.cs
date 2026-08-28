@@ -74,6 +74,17 @@ public class OzowNotificationController(HashService hash, AppDbContext db,
                     req.PayoutId?.Replace("\n", "").Replace("\r", ""),
                     status, subStatus,
                     req.MerchantReference?.Replace("\n", "").Replace("\r", ""));
+
+            if (status is 5 or 4 or 90 or 99)
+            {
+                var pending = await db.PendingPayouts.FindAsync(req.PayoutId);
+                if (pending is not null && !pending.Resolved)
+                {
+                    pending.Resolved = true;
+                    pending.ResolvedAt = DateTime.UtcNow;
+                    await db.SaveChangesAsync();
+                }
+            }
         }
 
         return Ok(new PayoutNotificationResponse

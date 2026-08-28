@@ -57,6 +57,7 @@ Escrow platform backend — ASP.NET Core 8, PostgreSQL (RDS), Ozow payments.
 | `OZOW_PRIVATE_KEY` | Ozow private key |
 | `OZOW_PAYOUT_API_KEY` | Ozow payout API key |
 | `OZOW_PAYOUT_BASE_URL` | Staging or production payout base URL |
+| `OZOW_VERIFY_URL` | Ozow payout verification callback URL |
 | `OZOW_ACCOUNT_NUMBER_DECRYPTION_KEY` | AES key returned on payout verify |
 | `SMILEID_PARTNER_ID` | SmileID partner ID |
 | `SMILEID_API_KEY` | SmileID API key |

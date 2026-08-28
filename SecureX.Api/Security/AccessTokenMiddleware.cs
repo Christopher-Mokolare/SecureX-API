@@ -23,8 +23,7 @@ public class AccessTokenMiddleware(RequestDelegate next, IConfiguration config, 
 
             if (string.IsNullOrEmpty(_expected) || token != _expected)
             {
-                logger.LogWarning("AccessToken rejected on {Path}. Received='{Received}' Expected='{Expected}'",
-                    ctx.Request.Path, token ?? "(null)", _expected);
+                logger.LogWarning("AccessToken rejected on {Path}", ctx.Request.Path);
                 ctx.Response.StatusCode = 401;
                 await ctx.Response.WriteAsJsonAsync(new { error = "Unauthorized" });
                 return;

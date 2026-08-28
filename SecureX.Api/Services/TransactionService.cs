@@ -272,6 +272,7 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
             }
 
             var notifyUrl    = config["Ozow:NotifyUrl"] ?? "";
+            var verifyUrl    = config["Ozow:VerifyUrl"] ?? "";
             var encKey       = config["Ozow:AccountNumberDecryptionKey"] ?? "";
             var payoutAmount = tx.ItemValue - tx.SellerFee;
 
@@ -281,7 +282,7 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
             var payoutId = await payoutService.RequestPayoutAsync(
                 tx.DealReference, payoutAmount,
                 seller.BankGroupId, seller.BankAccountNumber,
-                seller.BankBranchCode, encKey, notifyUrl);
+                seller.BankBranchCode, encKey, notifyUrl, verifyUrl);
 
             if (payoutId is null)
                 logger.LogError("TriggerPayout: Ozow rejected payout for {Ref}", tx.DealReference);

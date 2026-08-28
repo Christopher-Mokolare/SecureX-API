@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
 using SecureX.Api.Models;
 using SecureX.Api.Services;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace SecureX.Api.Webhooks;
@@ -25,20 +27,29 @@ public class OzowVerifyController(HashService hash, IConfiguration config, ILogg
         if (missing is not null)
             return Ok(Reject(req.PayoutId, missing));
 
+        var expectedAccessToken = config["Ozow:AccessToken"]?.Trim();
+        var receivedAccessToken = Request.Headers["AccessToken"].FirstOrDefault()?.Trim();
+        if (string.IsNullOrEmpty(expectedAccessToken) ||
+            string.IsNullOrEmpty(receivedAccessToken) ||
+            !CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(receivedAccessToken),
+                Encoding.UTF8.GetBytes(expectedAccessToken)))
+            return Ok(Reject(req.PayoutId ?? "", "Invalid access token"));
+
         if (!hash.VerifyPayoutHash(req, apiKey))
         {
             logger.LogWarning("PayoutVerify: hash mismatch for payoutId={PayoutId}",
             req.PayoutId?.Replace("\n", "").Replace("\r", ""));
-            return Ok(Reject(req.PayoutId, "Invalid hash check"));
+            return Ok(Reject(req.PayoutId ?? "", "Invalid hash check"));
         }
 
         logger.LogInformation("PayoutVerify: verified payoutId={PayoutId}",
             req.PayoutId?.Replace("\n", "").Replace("\r", ""));
         return Ok(new PayoutVerifyResponse
         {
-            PayoutId = req.PayoutId,
+            PayoutId = req.PayoutId ?? "",
             IsVerified = true,
-            AccountNumberDecryptionKey = decryptionKey,
+            AccountNumberDecryptionKey = decryptionKey!,
         });
     }
 
@@ -60,6 +71,7 @@ public class OzowVerifyController(HashService hash, IConfiguration config, ILogg
         if (string.IsNullOrEmpty(req.BankingDetails.AccountNumber)) return "Missing field: bankingDetails.accountNumber";
         if (string.IsNullOrEmpty(req.BankingDetails.BranchCode)) return "Missing field: bankingDetails.branchCode";
         if (string.IsNullOrEmpty(req.HashCheck)) return "Missing field: hashCheck";
+        if (string.IsNullOrEmpty(req.VerifyUrl)) return "Missing field: verifyUrl";
         return null;
     }
 }
