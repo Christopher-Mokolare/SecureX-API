@@ -166,7 +166,17 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         if (tx.Buyer?.IdCheckStatus != KycStatus.Approved || tx.Buyer?.AmlStatus != KycStatus.Approved)
             return BadRequest(new ErrorResponse { Error = "Buyer KYC has not been approved yet" });
 
-        var redirectUrl = await collectionService.CreatePaymentAsync(tx.DealReference, tx.TotalCheckoutAmount);
+        var configuredReturnUrl = config["Ozow:ReturnUrl"] ?? "https://secureexchange.co.za/payment-return";
+        var separator = configuredReturnUrl.Contains('?') ? "&" : "?";
+        var returnUrl = string.Concat(
+            configuredReturnUrl,
+            separator,
+            "txId=", Uri.EscapeDataString(tx.Id.ToString()),
+            "&sellerId=", Uri.EscapeDataString(tx.SellerId.ToString()),
+            "&sellerEmail=", Uri.EscapeDataString(tx.Seller?.Email ?? ""));
+
+        var redirectUrl = await collectionService.CreatePaymentAsync(
+            tx.DealReference, tx.TotalCheckoutAmount, returnUrl);
         if (redirectUrl is null)
             return StatusCode(502, new ErrorResponse { Error = "Failed to create Ozow payment" });
 

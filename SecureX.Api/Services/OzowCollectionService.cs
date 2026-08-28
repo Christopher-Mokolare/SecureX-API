@@ -20,15 +20,16 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
 
     private string BankRefPrefix => config["Ozow:BankRefPrefix"] ?? "";
 
-    public async Task<string?> CreatePaymentAsync(string dealReference, decimal totalAmount)
+    public async Task<string?> CreatePaymentAsync(string dealReference, decimal totalAmount, string? returnUrl = null)
     {
         var amount   = totalAmount.ToString("F2");
         var bankRef  = SanitiseRef(BankRefPrefix + dealReference);
         var isTest   = config["Ozow:IsTest"] ?? "true";
         var opt      = "";
+        var effectiveReturnUrl = returnUrl ?? ReturnUrl;
 
         var hash = BuildHash(SiteCode, "ZA", "ZAR", amount, dealReference, bankRef,
-            opt, opt, opt, ReturnUrl, ReturnUrl, ReturnUrl, NotifyUrl, isTest, PrivateKey);
+            opt, opt, opt, effectiveReturnUrl, effectiveReturnUrl, effectiveReturnUrl, NotifyUrl, isTest, PrivateKey);
 
         var body = new
         {
@@ -41,9 +42,9 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
             Optional1            = opt,
             Optional2            = opt,
             Optional3            = opt,
-            CancelUrl            = ReturnUrl,
-            ErrorUrl             = ReturnUrl,
-            SuccessUrl           = ReturnUrl,
+            CancelUrl             = effectiveReturnUrl,
+            ErrorUrl              = effectiveReturnUrl,
+            SuccessUrl            = effectiveReturnUrl,
             NotifyUrl            = NotifyUrl,
             IsTest               = isTest,
             HashCheck            = hash,
