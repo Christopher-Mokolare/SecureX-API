@@ -8,6 +8,9 @@ using SecureX.Api.Data;
 using SecureX.Api.Security;
 using SecureX.Api.Services;
 
+// Render's low inotify limit can crash the host before configuration callbacks run.
+Environment.SetEnvironmentVariable("DOTNET_HOSTBUILDER__RELOADCONFIGONCHANGE", "false");
+
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 {
     Args = args,
