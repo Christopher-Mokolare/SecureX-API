@@ -64,6 +64,7 @@ public class UsersController(AppDbContext db, IHttpClientFactory httpFactory, IC
     // ── GET /api/users/banks — proxy to Ozow available banks ────────────────
     // Maps Ozow field names (bankGroupName, universalBranchCode) to FE-expected names
     [HttpGet("banks")]
+    [Microsoft.AspNetCore.Authorization.AllowAnonymous]
     public async Task<IActionResult> GetBanks()
     {
         var baseUrl  = config["Ozow:PayoutBaseUrl"] ?? "https://stagingpayoutsapi.ozow.com/v1";
