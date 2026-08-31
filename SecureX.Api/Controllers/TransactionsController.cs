@@ -191,6 +191,31 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         });
     }
 
+    // ── POST /api/transactions/{id}/simulate-payment — staging webhook bypass ──
+    // Manually advances PaymentPending → FundsSecured when Ozow staging webhook doesn't fire.
+    // Protected by OZOW_ACCESS_TOKEN header.
+    [HttpPost("{id:guid}/simulate-payment")]
+    [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+    public async Task<IActionResult> SimulatePayment(Guid id)
+    {
+        var expectedToken = config["Ozow:AccessToken"];
+        var receivedToken = Request.Headers["AccessToken"].FirstOrDefault();
+        if (string.IsNullOrEmpty(expectedToken) || receivedToken != expectedToken)
+            return Unauthorized(new ErrorResponse { Error = "Invalid access token" });
+
+        var tx = await db.Transactions.FindAsync(id);
+        if (tx is null) return NotFound();
+
+        var advanced = await txService.HandlePaymentReceivedAsync(tx.DealReference);
+        if (!advanced)
+            return BadRequest(new ErrorResponse { Error = $"Transaction is not in PaymentPending status (current: {tx.Status})" });
+
+        var updated = await db.Transactions
+            .Include(t => t.Buyer).Include(t => t.Seller)
+            .FirstOrDefaultAsync(t => t.Id == id);
+        return Ok(Map(updated!));
+    }
+
     // ── GET /api/transactions/fee-preview ────────────────────────────────────
     [HttpGet("fee-preview")]
     public IActionResult FeePreview([FromQuery] decimal itemValue, [FromQuery] ServiceType serviceType,
@@ -271,7 +296,7 @@ public class TransactionsController(TransactionService txService, AppDbContext d
                 email = tx.Seller.Email,
                 phone_number = tx.Seller.Phone
             },
-            idInfo = new { id_number = tx.Seller.IdNumber },
+            idInfo = new { id_number = tx.Seller.IdNumber, country = "ZA", id_type = "NATIONAL_ID" },
             partnerParams = new
             {
                 internal_reference = tx.Id.ToString(),
