@@ -212,17 +212,21 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
     {
         try
         {
-            // ✅ CORRECT: SmileID /v3/token expects JSON, NOT multipart!
-            var tokenRequestPayload = new
+            logger.LogInformation("MintTokenAsync: Starting with partnerId={PartnerId}, product={Product}, country={Country}", partnerId, product, country);
+
+            // ✅ CORRECT: SmileID /v3/token expects multipart/form-data
+            var fields = new List<(string Name, string Value)>
             {
-                partner_id = partnerId,
-                product = product,
-                country = country,
-                allowed_countries = new[] { country }
+                ("partner_id", partnerId),
+                ("product", product),
+                ("country", country),
+                // ✅ FIX: allowed_countries must be a JSON array string
+                ("allowed_countries", JsonSerializer.Serialize(new[] { country }))
             };
 
-            var jsonPayload = JsonSerializer.Serialize(tokenRequestPayload);
-            var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
+            using var content = CreateMultipartContent(fields.ToArray());
+
+            logger.LogInformation("MintTokenAsync: Sending request to {Url}", $"{baseUrl}/v3/token");
 
             using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/token")
             {
@@ -233,6 +237,9 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
 
             var response = await httpFactory.CreateClient("SmileId").SendAsync(request);
             var body = await response.Content.ReadAsStringAsync();
+
+            logger.LogInformation("MintTokenAsync: Response status={Status}", response.StatusCode);
+
             if (!response.IsSuccessStatusCode)
             {
                 logger.LogError("SmileID token request rejected {Status}: {Body}", response.StatusCode, body);
@@ -244,19 +251,9 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
                 ? token.GetString()
                 : null;
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex)
         {
-            logger.LogError(ex, "SmileID token request failed");
-            return null;
-        }
-        catch (TaskCanceledException ex)
-        {
-            logger.LogError(ex, "SmileID token request timed out");
-            return null;
-        }
-        catch (JsonException ex)
-        {
-            logger.LogError(ex, "SmileID token response was invalid JSON");
+            logger.LogError(ex, "MintTokenAsync: Exception occurred");
             return null;
         }
     }
