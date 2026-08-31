@@ -212,17 +212,20 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
     {
         try
         {
-            var opts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
-            var payload = JsonSerializer.Serialize(new
+            // ⚠️ CRITICAL: SmileID /v3/token expects multipart/form-data, NOT JSON!
+            var fields = new List<(string Name, string Value)>
             {
-                partner_id = partnerId,
-                product,
-                country,
-                allowed_countries = new[] { country }
-            });
+                ("partner_id", partnerId),
+                ("product", product),
+                ("country", country),
+                ("allowed_countries", $"[ \"{country}\" ]")
+            };
+
+            using var content = CreateMultipartContent(fields.ToArray());
+
             using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/token")
             {
-                Content = new StringContent(payload, Encoding.UTF8, "application/json")
+                Content = content
             };
             request.Headers.Add("SmileID-Api-Key", apiKey);
             request.Headers.Add("SmileID-Partner-ID", partnerId);
