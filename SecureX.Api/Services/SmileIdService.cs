@@ -207,11 +207,23 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
         }
     }
 
-    private async Task<string?> MintTokenAsync(string partnerId, string apiKey, string baseUrl)
+    private async Task<string?> MintTokenAsync(string partnerId, string apiKey, string baseUrl,
+        string product = "biometric_kyc", string country = "ZA")
     {
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/token");
+            var opts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
+            var payload = JsonSerializer.Serialize(new
+            {
+                partner_id = partnerId,
+                product,
+                country,
+                allowed_countries = new[] { country }
+            });
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v3/token")
+            {
+                Content = new StringContent(payload, Encoding.UTF8, "application/json")
+            };
             request.Headers.Add("SmileID-Api-Key", apiKey);
             request.Headers.Add("SmileID-Partner-ID", partnerId);
 
