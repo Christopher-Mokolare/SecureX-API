@@ -294,7 +294,7 @@ public class TransactionsController(TransactionService txService, AppDbContext d
                 given_names = GetGivenNames(tx.Seller.FullName),
                 last_name = GetLastName(tx.Seller.FullName),
                 email = tx.Seller.Email,
-                phone_number = tx.Seller.Phone
+                phone_number = NormalizePhone(tx.Seller.Phone)
             },
             idInfo = new { id_number = tx.Seller.IdNumber, country = "ZA", id_type = "NATIONAL_ID" },
             partnerParams = new
@@ -328,5 +328,24 @@ public class TransactionsController(TransactionService txService, AppDbContext d
     {
         var parts = fullName.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
         return parts.Length > 1 ? parts[^1] : fullName.Trim();
+    }
+
+    private static string NormalizePhone(string? phone)
+    {
+        if (string.IsNullOrWhiteSpace(phone)) return "";
+
+        var clean = new string(phone.Where(c => char.IsDigit(c) || c == '+').ToArray());
+        clean = clean.Replace("+", string.Empty);
+
+        if (clean.StartsWith("0") && clean.Length == 10)
+            return "+27" + clean[1..];
+
+        if (clean.StartsWith("27") && clean.Length == 11)
+            return "+" + clean;
+
+        if (clean.Length > 0)
+            return "+" + clean;
+
+        return "";
     }
 }

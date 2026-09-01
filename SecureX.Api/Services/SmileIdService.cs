@@ -38,7 +38,7 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             return null;
         }
 
-        var token = await MintTokenAsync(partnerId, apiKey, baseUrl);
+        var token = await MintTokenAsync(partnerId, apiKey, baseUrl, product: "enhanced_kyc", country: country);
         if (token is null) return null;
 
         var nameParts = fullName.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -278,10 +278,21 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
 
     private static string NormalizePhone(string phone)
     {
+        if (string.IsNullOrWhiteSpace(phone)) return string.Empty;
+
         var clean = new string(phone.Where(c => char.IsDigit(c) || c == '+').ToArray());
-        if (clean.StartsWith("0")) return "+27" + clean[1..];
-        if (!clean.StartsWith("+") && clean.Length > 0) return "+" + clean;
-        return clean;
+        clean = clean.Replace("+", string.Empty);
+
+        if (clean.StartsWith("0") && clean.Length == 10)
+            return "+27" + clean[1..];
+
+        if (clean.StartsWith("27") && clean.Length == 11)
+            return "+" + clean;
+
+        if (clean.Length > 0)
+            return "+" + clean;
+
+        return string.Empty;
     }
 
     private static string? GetJsonString(JsonElement element, string propertyName)
