@@ -12,8 +12,19 @@ namespace SecureX.Api.Webhooks;
 public class OzowVerifyController(HashService hash, IConfiguration config, ILogger<OzowVerifyController> logger) : ControllerBase
 {
     [HttpPost("/securex/payout-verify")]
-    public IActionResult Verify([FromBody] PayoutVerifyRequest req)
+    public async Task<IActionResult> Verify()
     {
+        Request.EnableBuffering();
+        var rawBody = await new System.IO.StreamReader(Request.Body).ReadToEndAsync();
+        Request.Body.Position = 0;
+        logger.LogInformation("PayoutVerify RAW headers: AccessToken={Token}",
+            Request.Headers["AccessToken"].FirstOrDefault()?.Replace("\n","").Replace("\r",""));
+        logger.LogInformation("PayoutVerify RAW body: {Body}", rawBody);
+
+        PayoutVerifyRequest req;
+        try { req = System.Text.Json.JsonSerializer.Deserialize<PayoutVerifyRequest>(rawBody, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new(); }
+        catch { return BadRequest(); }
+
         var apiKey = config["Ozow:PayoutApiKey"];
         var decryptionKey = config["Ozow:AccountNumberDecryptionKey"];
 
@@ -38,8 +49,17 @@ public class OzowVerifyController(HashService hash, IConfiguration config, ILogg
 
         if (!hash.VerifyPayoutHash(req, apiKey))
         {
-            logger.LogWarning("PayoutVerify: hash mismatch for payoutId={PayoutId}",
-            req.PayoutId?.Replace("\n", "").Replace("\r", ""));
+            var cents = (long)Math.Round(req.Amount * 100);
+            var debugInput = string.Concat(
+                req.PayoutId, req.SiteCode, cents,
+                req.MerchantReference, req.CustomerBankReference,
+                req.IsRtc.ToString().ToLowerInvariant(), req.NotifyUrl,
+                req.BankingDetails?.BankGroupId, req.BankingDetails?.AccountNumber,
+                req.BankingDetails?.BranchCode, apiKey);
+            logger.LogWarning("PayoutVerify: hash mismatch payoutId={PayoutId} received={Received} inputLower={Input}",
+                req.PayoutId?.Replace("\n","").Replace("\r",""),
+                req.HashCheck,
+                debugInput.ToLowerInvariant());
             return Ok(Reject(req.PayoutId ?? "", "Invalid hash check"));
         }
 
