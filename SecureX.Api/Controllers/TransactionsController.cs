@@ -284,7 +284,7 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         return Ok(new
         {
             token,
-            product = "ekyc_smartselfie",
+            product = "smart_selfie_authentication",
             environment = isSandbox ? "sandbox" : "production",
             callbackUrl = config["SmileId:CallbackUrl"] ?? "",
             partnerId = config["SmileId:PartnerId"] ?? "",

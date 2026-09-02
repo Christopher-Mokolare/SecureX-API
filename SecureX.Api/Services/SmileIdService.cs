@@ -20,7 +20,7 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             return null;
         }
 
-        return await MintTokenAsync(partnerId, apiKey, baseUrl, product: "ekyc_smartselfie");
+        return await MintTokenAsync(partnerId, apiKey, baseUrl, product: "smart_selfie_authentication");
     }
 
     public async Task<string?> SubmitEnhancedKycAsync(
