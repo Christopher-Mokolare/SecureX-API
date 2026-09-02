@@ -20,7 +20,7 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             return null;
         }
 
-        return await MintTokenAsync(partnerId, apiKey, baseUrl);
+        return await MintTokenAsync(partnerId, apiKey, baseUrl, product: "ekyc_smartselfie");
     }
 
     public async Task<string?> SubmitEnhancedKycAsync(
@@ -220,8 +220,7 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
                 ("partner_id", partnerId),
                 ("product", product),
                 ("country", country),
-                ("id_type", "NATIONAL_ID"),
-                ("allowed_countries", JsonSerializer.Serialize(new[] { country }))
+                ("id_type", "NATIONAL_ID")
             };
 
             using var content = CreateMultipartContent(fields.ToArray());
