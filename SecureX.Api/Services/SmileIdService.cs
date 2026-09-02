@@ -220,7 +220,7 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
                 ("partner_id", partnerId),
                 ("product", product),
                 ("country", country),
-                // ✅ FIX: allowed_countries must be a JSON array string
+                ("id_type", "NATIONAL_ID"),
                 ("allowed_countries", JsonSerializer.Serialize(new[] { country }))
             };
 
