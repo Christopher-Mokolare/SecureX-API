@@ -217,8 +217,10 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         foreach (var p in stale) { p.Resolved = true; p.ResolvedAt = DateTime.UtcNow; }
         await db.SaveChangesAsync();
 
-        await txService.TriggerPayoutAsync(tx);
-        return Ok(new { dealReference = tx.DealReference, staleResolved = stale.Count, message = "Payout resubmitted" });
+        // Ozow rejects duplicate merchantReference — append retry suffix
+        var retryRef = $"{tx.DealReference}-R{DateTime.UtcNow:yyMMddHHmm}";
+        await txService.TriggerPayoutAsync(tx, retryRef);
+        return Ok(new { dealReference = tx.DealReference, retryReference = retryRef, staleResolved = stale.Count, message = "Payout resubmitted" });
     }
 
     // ── POST /api/transactions/{id}/simulate-payment — staging webhook bypass ──

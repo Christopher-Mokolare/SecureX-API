@@ -278,11 +278,13 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
             TransactionStatus.RequiresRefund, "buyer", $"Buyer rejected item: {reason}", expectedVersion);
     }
 
-    public async Task TriggerPayoutAsync(Transaction tx)
+    public async Task TriggerPayoutAsync(Transaction tx, string? merchantReferenceOverride = null)
     {
         try
         {
-            logger.LogInformation("TriggerPayout: starting for {Ref} seller={SellerId}", tx.DealReference, tx.SellerId);
+            var merchantRef = merchantReferenceOverride ?? tx.DealReference;
+            logger.LogInformation("TriggerPayout: starting for {Ref} seller={SellerId} merchantRef={MerchantRef}",
+                tx.DealReference, tx.SellerId, merchantRef);
 
             // Fire-and-forget runs after the HTTP request scope is disposed.
             // Create a fresh scope so we get a live DbContext.
@@ -322,15 +324,16 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
                 payoutAmount, seller.BankGroupId, notifyUrl);
 
             var payoutId = await payoutService.RequestPayoutAsync(
-                tx.DealReference, payoutAmount,
+                merchantRef, payoutAmount,
                 seller.BankGroupId, seller.BankAccountNumber,
                 seller.BankBranchCode, encKey, notifyUrl, verifyUrl);
 
             if (payoutId is null)
-                logger.LogError("TriggerPayout: Ozow rejected payout for {Ref}", tx.DealReference);
+                logger.LogError("TriggerPayout: Ozow rejected payout for {Ref} merchantRef={MerchantRef}", tx.DealReference, merchantRef);
             else
             {
-                logger.LogInformation("TriggerPayout: success PayoutId={PayoutId} Ref={Ref}", payoutId, tx.DealReference);
+                logger.LogInformation("TriggerPayout: success PayoutId={PayoutId} Ref={Ref} merchantRef={MerchantRef}",
+                    payoutId, tx.DealReference, merchantRef);
                 freshDb.PendingPayouts.Add(new PendingPayout
                 {
                     PayoutId = payoutId,
