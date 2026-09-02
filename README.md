@@ -78,6 +78,16 @@ Push to `main` — GitHub Actions builds the Docker image, pushes to ECR, and de
 git push origin main
 ```
 
+## Staging and production split
+
+Use separate environment values for each stage: backend URL, callback URLs, OAuth/webhook origins, and any third-party service keys.
+
+- FE staging config: `securex-fe/src/environments/environment.staging.ts`
+- FE production config: `securex-fe/src/environments/environment.prod.ts`
+- Backend CORS defaults are now derived from `ASPNETCORE_ENVIRONMENT` and `ALLOWED_ORIGINS`
+
+Set a distinct `ALLOWED_ORIGINS` value per environment to allow only the correct hosted frontend domains.
+
 ## Local Development
 
 ```bash

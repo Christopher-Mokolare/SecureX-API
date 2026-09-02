@@ -289,6 +289,7 @@ public class TransactionsController(TransactionService txService, AppDbContext d
                 : "production",
             callbackUrl = config["SmileId:CallbackUrl"] ?? "",
             partnerId = config["SmileId:PartnerId"] ?? "",
+            userId = tx.Seller.Id.ToString(),
             userDetails = new
             {
                 given_names = GetGivenNames(tx.Seller.FullName),

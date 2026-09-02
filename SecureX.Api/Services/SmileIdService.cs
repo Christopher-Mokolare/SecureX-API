@@ -140,13 +140,13 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
     }
 
     public async Task<AmlResult?> SubmitAmlAsync(
-        string fullName, string dealReference, string country = "ZA")
+        string fullName, string dealReference, string country = "ZA", string? userId = null)
     {
         var partnerId = config["SmileId:PartnerId"] ?? "";
         var apiKey = config["SmileId:ApiKey"] ?? "";
         var baseUrl = (config["SmileId:BaseUrl"] ?? "https://testapi.smileidentity.com").TrimEnd('/');
         var jobId = Guid.NewGuid().ToString();
-        var userId = Guid.NewGuid().ToString();
+        var resolvedUserId = userId ?? Guid.NewGuid().ToString();
         var timestamp = DateTime.UtcNow.ToString("o");
         var body = new
         {
@@ -155,7 +155,7 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             source_sdk_version = "1.0.0",
             signature = BuildSignature(partnerId, timestamp, apiKey),
             timestamp,
-            user_id = userId,
+            user_id = resolvedUserId,
             job_id = jobId,
             countries = new[] { country },
             full_name = fullName,

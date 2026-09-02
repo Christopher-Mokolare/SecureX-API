@@ -8,6 +8,8 @@ services:
     envVars:
       - key: ASPNETCORE_ENVIRONMENT
         value: Production
+      - key: ALLOWED_ORIGINS
+        value: "https://securex-fe.web.app,https://securex-staging.web.app,http://localhost:4200,http://localhost:3000"
       - key: DATABASE_URL
         sync: false
       - key: DATABASE_SSL

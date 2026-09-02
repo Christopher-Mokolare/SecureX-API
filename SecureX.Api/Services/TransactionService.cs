@@ -14,7 +14,7 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
         if (tx.Seller.AmlStatus == KycStatus.Pending &&
             string.IsNullOrWhiteSpace(tx.Seller.SmileIdAmlJobId))
         {
-            var aml = await smileId.SubmitAmlAsync(tx.Seller.FullName, tx.DealReference);
+            var aml = await smileId.SubmitAmlAsync(tx.Seller.FullName, tx.DealReference, userId: tx.Seller.Id.ToString());
             if (aml is not null)
             {
                 tx.Seller.SmileIdAmlJobId = aml.JobId;
@@ -118,7 +118,7 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
         }
 
         // AML is a separate watchlist screening and must not be inferred from ID verification.
-        var aml = await smileId.SubmitAmlAsync(req.BuyerFullName, tx.DealReference);
+        var aml = await smileId.SubmitAmlAsync(req.BuyerFullName, tx.DealReference, userId: buyer.Id.ToString());
         if (aml is not null)
         {
             buyer.SmileIdAmlJobId = aml.JobId;
