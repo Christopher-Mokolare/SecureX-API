@@ -29,7 +29,7 @@ public class HashService
         var input = string.Concat(
             req.PayoutId, req.SiteCode, cents,
             req.MerchantReference, req.CustomerBankReference,
-            req.IsRtc.ToString().ToLowerInvariant(), req.NotifyUrl, req.VerifyUrl,
+            req.IsRtc.ToString().ToLowerInvariant(), req.NotifyUrl,
             req.BankingDetails?.BankGroupId, req.BankingDetails?.AccountNumber,
             req.BankingDetails?.BranchCode, apiKey);
 
