@@ -17,6 +17,15 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     EnvironmentName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"
 });
 
+// Accept Expect: 100-continue from Ozow webhook client without returning 417
+builder.WebHost.ConfigureKestrel(k =>
+{
+    k.AllowResponseHeaderCompression = false;
+    k.Limits.MaxRequestBodySize = 10 * 1024 * 1024;
+});
+builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(o =>
+    o.AllowSynchronousIO = true);
+
 // Disable file watchers before any config sources are built — prevents inotify exhaustion on Render
 builder.Host.ConfigureAppConfiguration((_, config) =>
 {
