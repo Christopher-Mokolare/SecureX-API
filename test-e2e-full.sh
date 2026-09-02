@@ -75,7 +75,7 @@ TX="$(post "$BASE/api/transactions" "$(jq -n \
     BuyerFullName: $bn, BuyerEmail: $be, BuyerPhone: "0821234567", BuyerIdNumber: $bi,
     SellerFullName: "E2E Full Seller", SellerEmail: $se, SellerPhone: "0834567890",
     ItemTitle: "E2E Full Test Item", ItemDescription: "Full e2e escrow test",
-    ItemValue: 1000, SellerLocation: "Johannesburg", ServiceType: "Standard", FeePayer: "Buyer"
+    ItemValue: 10, SellerLocation: "Johannesburg", ServiceType: "Standard", FeePayer: "Buyer"
   }')")"
 TX_ID="$(echo "$TX" | jq -r '.Id // .id // empty')"
 DEAL_REF="$(echo "$TX" | jq -r '.DealReference // .dealReference // empty')"
