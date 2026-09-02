@@ -146,13 +146,6 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
         var apiKey = config["SmileId:ApiKey"] ?? "";
         var baseUrl = (config["SmileId:BaseUrl"] ?? "https://testapi.smileidentity.com").TrimEnd('/');
 
-        var token = await MintTokenAsync(partnerId, apiKey, baseUrl, product: "aml", country: country);
-        if (token is null)
-        {
-            logger.LogError("SmileID AML could not mint token for deal {Ref}", dealReference);
-            return null;
-        }
-
         var jobId = Guid.NewGuid().ToString();
         var resolvedUserId = userId ?? Guid.NewGuid().ToString();
         var body = new
@@ -175,10 +168,9 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             {
                 Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
             };
-            request.Headers.Add("SmileID-Token", token);
+            // AML v1 uses direct API key auth, not a minted token
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
             request.Headers.Add("SmileID-Partner-ID", partnerId);
-            request.Headers.Add("SmileID-Source-SDK", "rest_api");
-            request.Headers.Add("SmileID-Source-SDK-Version", "1.0.0");
             var response = await httpFactory.CreateClient("SmileId").SendAsync(request);
             var responseBody = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
