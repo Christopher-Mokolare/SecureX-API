@@ -148,11 +148,16 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
 
         var jobId = Guid.NewGuid().ToString();
         var resolvedUserId = userId ?? Guid.NewGuid().ToString();
+        var timestamp = DateTime.UtcNow.ToString("o");
+        var signature = BuildSignature(partnerId, timestamp, apiKey);
+
         var body = new
         {
             partner_id = partnerId,
             source_sdk = "rest_api",
             source_sdk_version = "1.0.0",
+            signature,
+            timestamp,
             user_id = resolvedUserId,
             job_id = jobId,
             countries = new[] { country },
@@ -168,9 +173,7 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             {
                 Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
             };
-            // AML v1 uses direct API key auth, not a minted token
-            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
-            request.Headers.Add("SmileID-Partner-ID", partnerId);
+            request.Headers.Add("Authorization", $"Bearer {apiKey}");
             var response = await httpFactory.CreateClient("SmileId").SendAsync(request);
             var responseBody = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
