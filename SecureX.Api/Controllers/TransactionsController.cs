@@ -217,8 +217,9 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         foreach (var p in stale) { p.Resolved = true; p.ResolvedAt = DateTime.UtcNow; }
         await db.SaveChangesAsync();
 
-        // Ozow rejects duplicate merchantReference — append retry suffix
-        var retryRef = $"{tx.DealReference}-R{DateTime.UtcNow:yyMMddHHmm}";
+        // Ozow rejects duplicate merchantReference — append retry suffix with seconds to avoid
+        // collision when poller and retry endpoint fire within the same minute
+        var retryRef = $"{tx.DealReference}-R{DateTime.UtcNow:yyMMddHHmmss}";
         await txService.TriggerPayoutAsync(tx, retryRef);
         return Ok(new { dealReference = tx.DealReference, retryReference = retryRef, staleResolved = stale.Count, message = "Payout resubmitted" });
     }
