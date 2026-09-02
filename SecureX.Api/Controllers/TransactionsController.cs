@@ -191,6 +191,36 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         });
     }
 
+    // ── POST /api/transactions/{id}/retry-payout — admin resubmit after terminal payout error ──
+    // Marks any unresolved pending_payouts for this deal as resolved, then resubmits.
+    // Protected by OZOW_ACCESS_TOKEN header.
+    [HttpPost("{id:guid}/retry-payout")]
+    [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+    public async Task<IActionResult> RetryPayout(Guid id)
+    {
+        var expectedToken = config["Ozow:AccessToken"];
+        var receivedToken = Request.Headers["AccessToken"].FirstOrDefault();
+        if (string.IsNullOrEmpty(expectedToken) || receivedToken != expectedToken)
+            return Unauthorized(new ErrorResponse { Error = "Invalid access token" });
+
+        var tx = await db.Transactions
+            .Include(t => t.Seller)
+            .FirstOrDefaultAsync(t => t.Id == id);
+        if (tx is null) return NotFound();
+        if (tx.Status != TransactionStatus.Completed)
+            return BadRequest(new ErrorResponse { Error = $"Transaction must be Completed to retry payout (current: {tx.Status})" });
+
+        // Resolve any stale pending payout records so the poller stops watching them
+        var stale = await db.PendingPayouts
+            .Where(p => p.DealReference == tx.DealReference && !p.Resolved)
+            .ToListAsync();
+        foreach (var p in stale) { p.Resolved = true; p.ResolvedAt = DateTime.UtcNow; }
+        await db.SaveChangesAsync();
+
+        await txService.TriggerPayoutAsync(tx);
+        return Ok(new { dealReference = tx.DealReference, staleResolved = stale.Count, message = "Payout resubmitted" });
+    }
+
     // ── POST /api/transactions/{id}/simulate-payment — staging webhook bypass ──
     // Manually advances PaymentPending → FundsSecured when Ozow staging webhook doesn't fire.
     // Protected by OZOW_ACCESS_TOKEN header.

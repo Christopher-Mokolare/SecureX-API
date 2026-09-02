@@ -278,7 +278,7 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
             TransactionStatus.RequiresRefund, "buyer", $"Buyer rejected item: {reason}", expectedVersion);
     }
 
-    private async Task TriggerPayoutAsync(Transaction tx)
+    public async Task TriggerPayoutAsync(Transaction tx)
     {
         try
         {
