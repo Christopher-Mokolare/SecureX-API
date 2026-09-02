@@ -97,7 +97,7 @@ public class OzowVerifyController(HashService hash, IConfiguration config, ILogg
         if (string.IsNullOrEmpty(req.BankingDetails.AccountNumber)) return "Missing field: bankingDetails.accountNumber";
         if (string.IsNullOrEmpty(req.BankingDetails.BranchCode)) return "Missing field: bankingDetails.branchCode";
         if (string.IsNullOrEmpty(req.HashCheck)) return "Missing field: hashCheck";
-        if (string.IsNullOrEmpty(req.VerifyUrl)) return "Missing field: verifyUrl";
+        // verifyUrl is not always present in Ozow's verify webhook body
         return null;
     }
 }
