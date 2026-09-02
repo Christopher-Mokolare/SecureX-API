@@ -279,14 +279,13 @@ public class TransactionsController(TransactionService txService, AppDbContext d
             return StatusCode(502, new ErrorResponse { Error = "Unable to start SmileID liveness verification" });
 
         var baseUrl = config["SmileId:BaseUrl"] ?? "";
+        var isSandbox = baseUrl.Contains("testapi", StringComparison.OrdinalIgnoreCase) ||
+                        baseUrl.Contains("sandbox", StringComparison.OrdinalIgnoreCase);
         return Ok(new
         {
             token,
             product = "biometric_kyc",
-            environment = baseUrl.Contains("testapi", StringComparison.OrdinalIgnoreCase) ||
-                          baseUrl.Contains("sandbox", StringComparison.OrdinalIgnoreCase)
-                ? "sandbox"
-                : "production",
+            environment = isSandbox ? "sandbox" : "production",
             callbackUrl = config["SmileId:CallbackUrl"] ?? "",
             partnerId = config["SmileId:PartnerId"] ?? "",
             userId = tx.Seller.Id.ToString(),
@@ -297,7 +296,7 @@ public class TransactionsController(TransactionService txService, AppDbContext d
                 email = tx.Seller.Email,
                 phone_number = NormalizePhone(tx.Seller.Phone)
             },
-            idInfo = new { id_number = tx.Seller.IdNumber, country = "ZA", id_type = "NATIONAL_ID" },
+            idInfo = new { id_number = isSandbox ? "0000000000000" : tx.Seller.IdNumber, country = "ZA", id_type = "NATIONAL_ID" },
             partnerParams = new
             {
                 internal_reference = tx.Id.ToString(),
