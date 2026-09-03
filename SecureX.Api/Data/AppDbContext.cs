@@ -63,7 +63,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.UpdatedAt).HasColumnName("updated_at");
             e.HasOne(x => x.Buyer).WithMany().HasForeignKey(x => x.BuyerId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Seller).WithMany().HasForeignKey(x => x.SellerId).OnDelete(DeleteBehavior.Restrict);
-            e.HasMany(x => x.AuditLogs).WithOne().HasForeignKey(x => x.TransactionId);
+            e.HasMany(x => x.AuditLogs).WithOne().HasForeignKey(x => x.TransactionId).IsRequired(false);
         });
 
         b.Entity<AuditLog>(e =>

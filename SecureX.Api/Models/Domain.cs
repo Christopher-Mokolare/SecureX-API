@@ -67,7 +67,7 @@ public class Transaction
 public class AuditLog
 {
     public Guid Id { get; set; } = Guid.NewGuid();
-    public Guid TransactionId { get; set; }
+    public Guid? TransactionId { get; set; }
     public TransactionStatus? PreviousStatus { get; set; }
     public TransactionStatus NewStatus { get; set; }
     public string TriggerActor { get; set; } = "";

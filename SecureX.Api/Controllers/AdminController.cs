@@ -233,7 +233,7 @@ public class AdminController(AppDbContext db, TransactionService txService) : Co
 
         db.AuditLogs.Add(new AuditLog
         {
-            TransactionId = Guid.Empty,
+            TransactionId = null,
             NewStatus = TransactionStatus.PaymentPending,
             TriggerActor = CallerEmail,
             ActionDetails = $"Admin KYC override on user {id}: IdCheck={req.IdCheckStatus}, AML={req.AmlStatus}, Liveness={req.LivenessStatus}",
