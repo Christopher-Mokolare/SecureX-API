@@ -224,7 +224,8 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
                 ("partner_id", partnerId),
                 ("product", product),
                 ("country", country),
-                ("id_type", "NATIONAL_ID")
+                ("id_type", "NATIONAL_ID"),
+                ("id_selection", "false")
             };
 
             using var content = CreateMultipartContent(fields.ToArray());
