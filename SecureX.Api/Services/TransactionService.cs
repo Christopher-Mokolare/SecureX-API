@@ -183,8 +183,8 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
         });
 
         await db.SaveChangesAsync();
-        await db.Database.ExecuteSqlInterpolatedAsync(
-            $"UPDATE transactions SET version = version + 1 WHERE \"Id\" = {txId}");
+        await db.Database.ExecuteSqlRawAsync(
+            "UPDATE transactions SET version = version + 1 WHERE \"Id\" = {0}", txId);
         tx.Version++;
         return tx;
     }
@@ -274,8 +274,9 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
         if (tx.InspectionWindowEndsAt.HasValue && DateTime.UtcNow > tx.InspectionWindowEndsAt.Value)
             throw new InvalidOperationException("24-hour inspection window has expired");
 
+        var safeReason = new string(reason.Where(c => c != '\n' && c != '\r').ToArray());
         return await AdvanceStateAsync(txId, TransactionStatus.ItemDelivered,
-            TransactionStatus.RequiresRefund, "buyer", $"Buyer rejected item: {reason}", expectedVersion);
+            TransactionStatus.RequiresRefund, "buyer", $"Buyer rejected item: {safeReason}", expectedVersion);
     }
 
     public async Task TriggerPayoutAsync(Transaction tx, string? merchantReferenceOverride = null)

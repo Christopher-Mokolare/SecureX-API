@@ -324,7 +324,7 @@ public class TransactionsController(TransactionService txService, AppDbContext d
             partnerId = config["SmileId:PartnerId"] ?? "",
             userId = tx.Seller.Id.ToString(),
             userDetails = new { given_names = GetGivenNames(tx.Seller.FullName), last_name = GetLastName(tx.Seller.FullName), email = tx.Seller.Email, phone_number = NormalizePhone(tx.Seller.Phone) },
-            idInfo = new { id_number = isSandbox ? "0000000000000" : tx.Seller.IdNumber, country = "ZA", id_type = "NATIONAL_ID", entered = true },
+            idInfo = new { ZA = new { NATIONAL_ID = new { id_number = isSandbox ? "0000000000000" : tx.Seller.IdNumber } } },
             partnerParams = new
             {
                 internal_reference = tx.Id.ToString(),

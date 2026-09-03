@@ -95,7 +95,7 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             var body = await response.Content.ReadAsStringAsync();
             if (response.StatusCode != System.Net.HttpStatusCode.Accepted)
             {
-                logger.LogError("SmileID Enhanced KYC rejected {Status}: {Body}", response.StatusCode, body);
+                logger.LogError("SmileID Enhanced KYC rejected {Status}: {Body}", response.StatusCode, body.Replace("\n", "").Replace("\r", ""));
                 return null;
             }
 
@@ -178,7 +178,7 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             var responseBody = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
             {
-                logger.LogError("SmileID AML rejected {Status}: {Body}", response.StatusCode, responseBody);
+                logger.LogError("SmileID AML rejected {Status}: {Body}", response.StatusCode, responseBody.Replace("\n", "").Replace("\r", ""));
                 return null;
             }
 
@@ -246,7 +246,7 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
 
             if (!response.IsSuccessStatusCode)
             {
-                logger.LogError("SmileID token request rejected {Status}: {Body}", response.StatusCode, body);
+                logger.LogError("SmileID token request rejected {Status}: {Body}", response.StatusCode, body.Replace("\n", "").Replace("\r", ""));
                 return null;
             }
 

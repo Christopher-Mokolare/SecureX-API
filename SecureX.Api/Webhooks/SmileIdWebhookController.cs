@@ -62,7 +62,7 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
 
             if (sellerTransaction?.Seller is null)
             {
-                logger.LogWarning("SmileID seller liveness webhook: transaction not found for {Ref}", dealReference);
+                logger.LogWarning("SmileID seller liveness webhook: transaction not found for {Ref}", dealReference?.Replace("\n", "").Replace("\r", ""));
                 return Ok();
             }
 
@@ -77,10 +77,10 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
                     sellerTransaction.Seller.LivenessStatus = KycStatus.Failed;
                     break;
                 case "error":
-                    logger.LogError("SmileID seller liveness error for deal {Ref}", dealReference);
+                    logger.LogError("SmileID seller liveness error for deal {Ref}", dealReference?.Replace("\n", "").Replace("\r", ""));
                     return Ok();
                 default:
-                    logger.LogWarning("SmileID seller liveness unknown status '{Status}' for deal {Ref}", status, dealReference);
+                    logger.LogWarning("SmileID seller liveness unknown status '{Status}' for deal {Ref}", status?.Replace("\n", "").Replace("\r", ""), dealReference?.Replace("\n", "").Replace("\r", ""));
                     return Ok();
             }
 
@@ -102,7 +102,7 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
 
         if (buyer is null && string.IsNullOrEmpty(dealReference))
         {
-            logger.LogWarning("SmileID webhook: no deal_reference in partner_params. JobId={JobId}", jobId);
+            logger.LogWarning("SmileID webhook: no deal_reference in partner_params. JobId={JobId}", jobId?.Replace("\n", "").Replace("\r", ""));
             return Ok(); // ack to prevent retries
         }
 
@@ -115,7 +115,7 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
 
         if (buyer is null)
         {
-            logger.LogWarning("SmileID webhook: buyer not found for deal {Ref}", dealReference);
+            logger.LogWarning("SmileID webhook: buyer not found for deal {Ref}", dealReference?.Replace("\n", "").Replace("\r", ""));
             return Ok();
         }
 
@@ -129,7 +129,7 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
             };
             buyer.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
-            logger.LogInformation("SmileID AML result for deal {Ref}: {ResultCode}", dealReference, amlResultCode);
+            logger.LogInformation("SmileID AML result for deal {Ref}: {ResultCode}", dealReference?.Replace("\n", "").Replace("\r", ""), amlResultCode?.Replace("\n", "").Replace("\r", ""));
             return Ok();
         }
 
@@ -137,21 +137,21 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
         {
             case "clear":
                 buyer.IdCheckStatus = KycStatus.Approved;
-                logger.LogInformation("SmileID KYC clear for deal {Ref} buyer {BuyerId}", dealReference, buyer.Id);
+                logger.LogInformation("SmileID KYC clear for deal {Ref} buyer {BuyerId}", dealReference?.Replace("\n", "").Replace("\r", ""), buyer.Id);
                 break;
 
             case "block":
                 var reason = GetString(payload, "reason") ?? "blocked";
                 buyer.IdCheckStatus = KycStatus.Failed;
-                logger.LogWarning("SmileID KYC blocked for deal {Ref}: {Reason}", dealReference, reason);
+                logger.LogWarning("SmileID KYC blocked for deal {Ref}: {Reason}", dealReference?.Replace("\n", "").Replace("\r", ""), reason?.Replace("\n", "").Replace("\r", ""));
                 break;
 
             case "error":
-                logger.LogError("SmileID KYC error for deal {Ref} — status remains Pending", dealReference);
+                logger.LogError("SmileID KYC error for deal {Ref} — status remains Pending", dealReference?.Replace("\n", "").Replace("\r", ""));
                 break; // leave as Pending so it can be retried
 
             default:
-                logger.LogWarning("SmileID webhook: unknown status '{Status}' for deal {Ref}", status, dealReference);
+                logger.LogWarning("SmileID webhook: unknown status '{Status}' for deal {Ref}", status?.Replace("\n", "").Replace("\r", ""), dealReference?.Replace("\n", "").Replace("\r", ""));
                 break;
         }
 

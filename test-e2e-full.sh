@@ -73,7 +73,7 @@ TX="$(post "$BASE/api/transactions" "$(jq -n \
   --arg se "$SELLER_EMAIL" \
   '{
     BuyerFullName: $bn, BuyerEmail: $be, BuyerPhone: "0821234567", BuyerIdNumber: $bi,
-    SellerFullName: "E2E Full Seller", SellerEmail: $se, SellerPhone: "0834567890",
+    SellerFullName: "Thapelo", SellerEmail: $se, SellerPhone: "0834567890",
     ItemTitle: "E2E Full Test Item", ItemDescription: "Full e2e escrow test",
     ItemValue: 10, SellerLocation: "Johannesburg", ServiceType: "Standard", FeePayer: "Buyer"
   }')")"
@@ -122,9 +122,9 @@ echo "       PASS — status=$STATUS"
 # ── 7. Save seller bank details + ID number ───────────────────────────────────
 echo "[7/13] Saving seller bank details..."
 post "$BASE/api/users/$SELLER_ID/bank-details" "$(jq -n '{
-  accountNumber: "4050338500",
-  branchCode: "632005",
-  bankGroupId: "3284a0ad-ba78-4838-8c2b-102981286a2b",
+  accountNumber: "62285724655",
+  branchCode: "250655",
+  bankGroupId: "4816019c-3314-4c80-8b6b-b2cd16dcc4ec",
   idNumber: "8001015009087"
 }')" > /dev/null
 echo "       PASS"
@@ -134,14 +134,14 @@ echo "[8/13] Starting seller KYC (liveness token)..."
 KYC_RESP="$(post "$BASE/api/transactions/$TX_ID/start-seller-kyc" "")"
 TOKEN_VAL="$(echo "$KYC_RESP" | jq -r '.token // empty')"
 ENVIRONMENT="$(echo "$KYC_RESP" | jq -r '.environment // empty')"
-ID_NUMBER_IN_RESP="$(echo "$KYC_RESP" | jq -r '.idInfo.id_number // empty')"
+ID_NUMBER_IN_RESP="$(echo "$KYC_RESP" | jq -r '.idInfo.ZA.NATIONAL_ID.id_number // empty')"
 [ -z "$TOKEN_VAL" ] && echo "FAIL: no liveness token — $(echo "$KYC_RESP" | jq .)" >&2 && exit 1
 # In sandbox the backend must override the real ID with the test identity
 if [ "$ENVIRONMENT" = "sandbox" ] && [ "$ID_NUMBER_IN_RESP" != "0000000000000" ]; then
   echo "FAIL: sandbox idInfo.id_number should be 0000000000000, got '$ID_NUMBER_IN_RESP'" >&2
   exit 1
 fi
-echo "       PASS — env=$ENVIRONMENT idInfo.id_number=$ID_NUMBER_IN_RESP token=${TOKEN_VAL:0:20}..."
+echo "       PASS — env=$ENVIRONMENT idInfo.ZA.NATIONAL_ID.id_number=$ID_NUMBER_IN_RESP token=${TOKEN_VAL:0:20}..."
 
 # ── 9. Simulate seller liveness webhook → all 3 statuses Approved ─────────────
 echo "[9/13] Simulating SmileID seller liveness webhook..."
