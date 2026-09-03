@@ -22,6 +22,9 @@ public class OzowPayoutPollerService(IServiceScopeFactory scopeFactory, IConfigu
     // Terminal statuses — stop polling once reached
     private static readonly HashSet<int> TerminalStatuses = [5, 4, 90, 99];
 
+    // Give up after this many polls (~10 min at 2-min interval) to avoid infinite polling
+    private const int MaxPollAttempts = 5;
+
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         // Stagger startup so migrations complete first
@@ -101,6 +104,18 @@ public class OzowPayoutPollerService(IServiceScopeFactory scopeFactory, IConfigu
                 {
                     pending.Resolved   = true;
                     pending.ResolvedAt = DateTime.UtcNow;
+                    await db.SaveChangesAsync(ct);
+                }
+                else
+                {
+                    pending.PollCount++;
+                    if (pending.PollCount >= MaxPollAttempts)
+                    {
+                        logger.LogWarning("PayoutPoller: max attempts reached for {PayoutId} Ref={Ref} — marking resolved to stop polling",
+                            pending.PayoutId, pending.DealReference);
+                        pending.Resolved   = true;
+                        pending.ResolvedAt = DateTime.UtcNow;
+                    }
                     await db.SaveChangesAsync(ct);
                 }
             }

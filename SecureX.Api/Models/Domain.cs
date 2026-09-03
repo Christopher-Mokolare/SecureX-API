@@ -114,6 +114,7 @@ public class PendingPayout
     public string PayoutId { get; set; } = "";          // PK — Ozow's UUID
     public string DealReference { get; set; } = "";
     public bool Resolved { get; set; }
+    public int PollCount { get; set; }
     public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ResolvedAt { get; set; }
 }
