@@ -13,7 +13,9 @@ namespace SecureX.Api.Controllers;
 public class UsersController(AppDbContext db, IHttpClientFactory httpFactory, IConfiguration config) : ControllerBase
 {
     // ── POST /api/users/{id}/bank-details ────────────────────────────────────
+    // AllowAnonymous: seller arrives via magic link with no JWT session
     [HttpPost("{id:guid}/bank-details")]
+    [Microsoft.AspNetCore.Authorization.AllowAnonymous]
     public async Task<IActionResult> SaveBankDetails(Guid id, [FromBody] BankDetailsRequest req)
     {
         if (string.IsNullOrWhiteSpace(req.AccountNumber))

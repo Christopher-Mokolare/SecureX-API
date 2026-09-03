@@ -123,11 +123,11 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
 
         // AML is a separate watchlist screening and must not be inferred from ID verification.
         // Small delay to avoid sandbox rate-limiting when KYC and AML fire back-to-back.
-        await Task.Delay(1500);
+        await Task.Delay(3000);
         var aml = await smileId.SubmitAmlAsync(req.BuyerFullName, tx.DealReference, userId: buyer.Id.ToString());
         if (aml is null) // retry once on transient 401/429
         {
-            await Task.Delay(3000);
+            await Task.Delay(5000);
             aml = await smileId.SubmitAmlAsync(req.BuyerFullName, tx.DealReference, userId: buyer.Id.ToString());
         }
         if (aml is not null)
