@@ -159,6 +159,45 @@ public class AdminController(AppDbContext db, TransactionService txService) : Co
         catch (InvalidOperationException ex) { return BadRequest(new ErrorResponse { Error = ex.Message }); }
     }
 
+    // ── POST /api/admin/transactions/{id}/advance ─────────────────────────────
+    // Allows admin to manually advance a stuck transaction to the next valid status.
+    [HttpPost("transactions/{id:guid}/advance")]
+    public async Task<IActionResult> AdvanceTransaction(Guid id, [FromBody] AdvanceTransactionRequest req)
+    {
+        if (!Enum.TryParse<TransactionStatus>(req.ToStatus, true, out var toStatus))
+            return BadRequest(new ErrorResponse { Error = $"Unknown status '{req.ToStatus}'" });
+
+        var tx = await db.Transactions.Include(t => t.Seller).Include(t => t.Buyer)
+            .FirstOrDefaultAsync(t => t.Id == id);
+        if (tx is null) return NotFound();
+
+        // Allowed admin advances per current status
+        var allowed = tx.Status switch
+        {
+            TransactionStatus.PaymentPending   => new[] { TransactionStatus.FundsSecured },
+            TransactionStatus.FundsSecured     => new[] { TransactionStatus.LogisticsPending },
+            TransactionStatus.LogisticsPending => new[] { TransactionStatus.ItemDelivered },
+            TransactionStatus.ItemDelivered    => new[] { TransactionStatus.Completed, TransactionStatus.RequiresRefund },
+            TransactionStatus.RequiresRefund   => new[] { TransactionStatus.Completed, TransactionStatus.Refunded },
+            _ => Array.Empty<TransactionStatus>()
+        };
+
+        if (!allowed.Contains(toStatus))
+            return BadRequest(new ErrorResponse { Error = $"Cannot advance from {tx.Status} to {toStatus}" });
+
+        try
+        {
+            var reason = string.IsNullOrWhiteSpace(req.Reason) ? $"Admin manual advance to {toStatus}" : req.Reason;
+            var updated = await txService.AdvanceStateAsync(id, tx.Status, toStatus, CallerEmail, reason, tx.Version);
+
+            if (toStatus == TransactionStatus.Completed)
+                _ = txService.TriggerPayoutAsync(updated);
+
+            return Ok(MapTransaction(updated));
+        }
+        catch (InvalidOperationException ex) { return BadRequest(new ErrorResponse { Error = ex.Message }); }
+    }
+
     // ── POST /api/admin/transactions/{id}/retry-payout ────────────────────────
     [HttpPost("transactions/{id:guid}/retry-payout")]
     public async Task<IActionResult> RetryPayout(Guid id)
@@ -275,7 +314,15 @@ public class AdminController(AppDbContext db, TransactionService txService) : Co
 
         var userCount = await db.Users.Where(u => !u.IsAdmin).CountAsync();
 
-        return Ok(new { transactionsByStatus = txStats, totalFeesCollected = feeTotal, openDisputes = disputeCount, totalUsers = userCount });
+        var fundsInEscrow = await db.Transactions
+            .Where(t => t.Status == TransactionStatus.FundsSecured ||
+                        t.Status == TransactionStatus.LogisticsPending ||
+                        t.Status == TransactionStatus.ItemDelivered)
+            .SumAsync(t => (decimal?)t.TotalCheckoutAmount) ?? 0;
+
+        var pendingPayouts = await db.PendingPayouts.CountAsync(p => !p.Resolved);
+
+        return Ok(new { transactionsByStatus = txStats, totalFeesCollected = feeTotal, openDisputes = disputeCount, totalUsers = userCount, fundsInEscrow, pendingPayouts });
     }
 
     // ── GET /api/admin/audit ──────────────────────────────────────────────────
@@ -294,7 +341,7 @@ public class AdminController(AppDbContext db, TransactionService txService) : Co
         DateTime? to   = DateTime.TryParse(toDate,   out var td) ? td.ToUniversalTime().AddDays(1) : null;
 
         var query = db.AuditLogs
-            .Where(a => a.TransactionId != Guid.Empty)
+            .Where(a => a.TransactionId != null)
             .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(search))
@@ -381,6 +428,12 @@ public class KycOverrideRequest
     public string? IdCheckStatus { get; set; }
     public string? AmlStatus { get; set; }
     public string? LivenessStatus { get; set; }
+}
+
+public class AdvanceTransactionRequest
+{
+    public string ToStatus { get; set; } = "";
+    public string? Reason { get; set; }
 }
 
 public class SuspendRequest { public bool Suspended { get; set; } }
