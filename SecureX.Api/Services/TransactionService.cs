@@ -102,8 +102,12 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
         await db.SaveChangesAsync();
 
         // Submit KYC job — result arrives asynchronously via SmileID webhook
+        var smileBaseUrl = config["SmileId:BaseUrl"] ?? "";
+        var isSandbox = smileBaseUrl.Contains("testapi", StringComparison.OrdinalIgnoreCase) ||
+                        smileBaseUrl.Contains("sandbox", StringComparison.OrdinalIgnoreCase);
+        var kycIdNumber = isSandbox ? "0000000000000" : req.BuyerIdNumber;
         var jobId = await smileId.SubmitEnhancedKycAsync(
-            req.BuyerFullName, req.BuyerIdNumber, req.BuyerEmail, req.BuyerPhone, tx.DealReference);
+            req.BuyerFullName, kycIdNumber, req.BuyerEmail, req.BuyerPhone, tx.DealReference);
 
         if (jobId is not null)
         {
