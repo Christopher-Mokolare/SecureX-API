@@ -1,16 +1,19 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SecureX.Api.Data;
 using SecureX.Api.Models;
 using SecureX.Api.Services;
+using System.Security.Claims;
 
 namespace SecureX.Api.Controllers;
 
 [ApiController]
 [Route("api/transactions")]
-[Microsoft.AspNetCore.Authorization.Authorize]
+[Authorize]
 public class TransactionsController(TransactionService txService, AppDbContext db, OzowCollectionService collectionService, IConfiguration config) : ControllerBase
 {
+    private string CallerEmail => User.FindFirstValue(ClaimTypes.Email) ?? "unknown";
     // ── POST /api/transactions — submit deal form ────────────────────────────
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateTransactionRequest req)
@@ -66,7 +69,7 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         {
             var tx = await txService.AdvanceStateAsync(id,
                 TransactionStatus.FundsSecured, TransactionStatus.LogisticsPending,
-                req.Actor, "Seller confirmed delivery arranged — logistics in progress", req.ExpectedVersion);
+                CallerEmail, "Seller confirmed delivery arranged — logistics in progress", req.ExpectedVersion);
             return Ok(Map(tx));
         }
         catch (DbUpdateConcurrencyException) { return Conflict(new ErrorResponse { Error = "Transaction was modified concurrently. Refresh and retry." }); }
@@ -82,7 +85,7 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         {
             var tx = await txService.AdvanceStateAsync(id,
                 TransactionStatus.LogisticsPending, TransactionStatus.ItemDelivered,
-                req.Actor, "Item marked as delivered — 24hr inspection window started", req.ExpectedVersion);
+                CallerEmail, "Item marked as delivered — 24hr inspection window started", req.ExpectedVersion);
             return Ok(Map(tx));
         }
         catch (DbUpdateConcurrencyException) { return Conflict(new ErrorResponse { Error = "Transaction was modified concurrently. Refresh and retry." }); }
@@ -96,7 +99,7 @@ public class TransactionsController(TransactionService txService, AppDbContext d
     {
         try
         {
-            var tx = await txService.CompleteAsync(id, req.Actor, req.ExpectedVersion);
+            var tx = await txService.CompleteAsync(id, CallerEmail, req.ExpectedVersion);
             return Ok(Map(tx));
         }
         catch (DbUpdateConcurrencyException) { return Conflict(new ErrorResponse { Error = "Transaction was modified concurrently. Refresh and retry." }); }
@@ -122,15 +125,16 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         }
     }
 
-    // ── POST /api/transactions/{id}/resolve-dispute ──────────────────────────
+    // ── POST /api/transactions/{id}/resolve-dispute — admin only ────────────
     [HttpPost("{id:guid}/resolve-dispute")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> ResolveDispute(Guid id, [FromBody] ResolveDisputeRequest req)
     {
         if (req.Decision is not ("release-to-seller" or "refund-to-buyer"))
             return BadRequest(new ErrorResponse { Error = "Decision must be 'release-to-seller' or 'refund-to-buyer'" });
         try
         {
-            var tx = await txService.ResolveDisputeAsync(id, req.Decision, req.Actor);
+            var tx = await txService.ResolveDisputeAsync(id, req.Decision, CallerEmail);
             return Ok(Map(tx));
         }
         catch (KeyNotFoundException) { return NotFound(); }
@@ -190,18 +194,11 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         });
     }
 
-    // ── POST /api/transactions/{id}/retry-payout — admin resubmit after terminal payout error ──
-    // Marks any unresolved pending_payouts for this deal as resolved, then resubmits.
-    // Protected by OZOW_ACCESS_TOKEN header.
+    // ── POST /api/transactions/{id}/retry-payout — admin only ───────────────
     [HttpPost("{id:guid}/retry-payout")]
-    [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> RetryPayout(Guid id)
     {
-        var expectedToken = config["Ozow:AccessToken"];
-        var receivedToken = Request.Headers["AccessToken"].FirstOrDefault();
-        if (string.IsNullOrEmpty(expectedToken) || receivedToken != expectedToken)
-            return Unauthorized(new ErrorResponse { Error = "Invalid access token" });
-
         var tx = await db.Transactions
             .Include(t => t.Seller)
             .FirstOrDefaultAsync(t => t.Id == id);
@@ -223,18 +220,11 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         return Ok(new { dealReference = tx.DealReference, retryReference = retryRef, staleResolved = stale.Count, message = "Payout resubmitted" });
     }
 
-    // ── POST /api/transactions/{id}/simulate-payment — staging webhook bypass ──
-    // Manually advances PaymentPending → FundsSecured when Ozow staging webhook doesn't fire.
-    // Protected by OZOW_ACCESS_TOKEN header.
+    // ── POST /api/transactions/{id}/simulate-payment — admin only ───────────
     [HttpPost("{id:guid}/simulate-payment")]
-    [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> SimulatePayment(Guid id)
     {
-        var expectedToken = config["Ozow:AccessToken"];
-        var receivedToken = Request.Headers["AccessToken"].FirstOrDefault();
-        if (string.IsNullOrEmpty(expectedToken) || receivedToken != expectedToken)
-            return Unauthorized(new ErrorResponse { Error = "Invalid access token" });
-
         var tx = await db.Transactions.FindAsync(id);
         if (tx is null) return NotFound();
 

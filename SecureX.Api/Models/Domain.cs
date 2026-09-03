@@ -31,6 +31,8 @@ public class User
     public KycStatus IdCheckStatus { get; set; } = KycStatus.Pending;
     public KycStatus AmlStatus { get; set; } = KycStatus.Pending;
     public KycStatus LivenessStatus { get; set; } = KycStatus.Pending;
+    public bool IsAdmin { get; set; } = false;
+    public bool IsSuspended { get; set; } = false;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

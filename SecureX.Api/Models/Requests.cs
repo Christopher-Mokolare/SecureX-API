@@ -104,13 +104,10 @@ public class BankDetailsRequest
 public class ResolveDisputeRequest
 {
     public string Decision { get; set; } = ""; // "release-to-seller" | "refund-to-buyer"
-    public string Actor { get; set; } = "admin";
 }
 
 public class AdvanceStateRequest
 {
     public Guid TransactionId { get; set; }
-    public string Actor { get; set; } = "";
-    public string? Details { get; set; }
     public int ExpectedVersion { get; set; }
 }
