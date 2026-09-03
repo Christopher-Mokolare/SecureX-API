@@ -19,13 +19,13 @@ namespace SecureX.Api.Migrations
             migrationBuilder.Sql($"""
                 DO $$
                 BEGIN
-                  IF EXISTS (SELECT 1 FROM users WHERE email = 'info@secureexchange.co.za') THEN
+                  IF EXISTS (SELECT 1 FROM users WHERE "Email" = 'info@secureexchange.co.za') THEN
                     UPDATE users
                     SET "IsAdmin" = true, password_hash = '{hash}', updated_at = now()
-                    WHERE email = 'info@secureexchange.co.za';
+                    WHERE "Email" = 'info@secureexchange.co.za';
                   ELSE
                     INSERT INTO users (
-                        "Id", full_name, email, phone,
+                        "Id", full_name, "Email", "Phone",
                         id_number, bank_account_number, bank_branch_code, bank_group_id,
                         "IdCheckStatus", "AmlStatus", liveness_status, bank_verification_status,
                         "IsAdmin", "IsSuspended", password_hash,
