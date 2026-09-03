@@ -23,11 +23,14 @@ public class AdminController(AppDbContext db, TransactionService txService) : Co
         [FromQuery] int size = 20,
         [FromQuery] string? status = null,
         [FromQuery] string? search = null,
-        [FromQuery] DateTime? fromDate = null,
-        [FromQuery] DateTime? toDate = null)
+        [FromQuery] string? fromDate = null,
+        [FromQuery] string? toDate = null)
     {
         size = Math.Clamp(size, 1, 100);
         page = Math.Max(1, page);
+
+        DateTime? from = DateTime.TryParse(fromDate, out var fd) ? fd.ToUniversalTime() : null;
+        DateTime? to   = DateTime.TryParse(toDate,   out var td) ? td.ToUniversalTime().AddDays(1) : null;
 
         var query = db.Transactions
             .Include(t => t.Buyer)
@@ -44,8 +47,8 @@ public class AdminController(AppDbContext db, TransactionService txService) : Co
                 (t.Buyer != null && t.Buyer.Email.Contains(search)) ||
                 (t.Seller != null && t.Seller.Email.Contains(search)));
 
-        if (fromDate.HasValue) query = query.Where(t => t.CreatedAt >= fromDate.Value);
-        if (toDate.HasValue)   query = query.Where(t => t.CreatedAt <= toDate.Value);
+        if (from.HasValue) query = query.Where(t => t.CreatedAt >= from.Value);
+        if (to.HasValue)   query = query.Where(t => t.CreatedAt <= to.Value);
 
         var total = await query.CountAsync();
         var items = await query
@@ -56,9 +59,7 @@ public class AdminController(AppDbContext db, TransactionService txService) : Co
 
         return Ok(new
         {
-            total,
-            page,
-            size,
+            total, page, size,
             pages = (int)Math.Ceiling((double)total / size),
             items = items.Select(MapTransaction),
         });
@@ -69,9 +70,12 @@ public class AdminController(AppDbContext db, TransactionService txService) : Co
     public async Task<IActionResult> ExportTransactions(
         [FromQuery] string? status = null,
         [FromQuery] string? search = null,
-        [FromQuery] DateTime? fromDate = null,
-        [FromQuery] DateTime? toDate = null)
+        [FromQuery] string? fromDate = null,
+        [FromQuery] string? toDate = null)
     {
+        DateTime? from = DateTime.TryParse(fromDate, out var fd) ? fd.ToUniversalTime() : null;
+        DateTime? to   = DateTime.TryParse(toDate,   out var td) ? td.ToUniversalTime().AddDays(1) : null;
+
         var query = db.Transactions
             .Include(t => t.Buyer)
             .Include(t => t.Seller)
@@ -87,8 +91,8 @@ public class AdminController(AppDbContext db, TransactionService txService) : Co
                 (t.Buyer != null && t.Buyer.Email.Contains(search)) ||
                 (t.Seller != null && t.Seller.Email.Contains(search)));
 
-        if (fromDate.HasValue) query = query.Where(t => t.CreatedAt >= fromDate.Value);
-        if (toDate.HasValue)   query = query.Where(t => t.CreatedAt <= toDate.Value);
+        if (from.HasValue) query = query.Where(t => t.CreatedAt >= from.Value);
+        if (to.HasValue)   query = query.Where(t => t.CreatedAt <= to.Value);
 
         var items = await query.OrderByDescending(t => t.CreatedAt).ToListAsync();
 
@@ -97,8 +101,7 @@ public class AdminController(AppDbContext db, TransactionService txService) : Co
         foreach (var t in items)
             sb.AppendLine($"{t.DealReference},{CsvEscape(t.ItemTitle)},{CsvEscape(t.Seller?.Email)},{CsvEscape(t.Buyer?.Email)},{t.ItemValue},{t.PlatformFee},{t.TotalCheckoutAmount},{t.ServiceType},{t.Status},{t.CreatedAt:yyyy-MM-dd}");
 
-        var bytes = Encoding.UTF8.GetBytes(sb.ToString());
-        return File(bytes, "text/csv", $"transactions-{DateTime.UtcNow:yyyyMMdd}.csv");
+        return File(Encoding.UTF8.GetBytes(sb.ToString()), "text/csv", $"transactions-{DateTime.UtcNow:yyyyMMdd}.csv");
     }
 
     // ── GET /api/admin/transactions/{id} ──────────────────────────────────────
@@ -270,7 +273,7 @@ public class AdminController(AppDbContext db, TransactionService txService) : Co
         var disputeCount = await db.Transactions
             .CountAsync(t => t.Status == TransactionStatus.RequiresRefund);
 
-        var userCount = await db.Users.CountAsync();
+        var userCount = await db.Users.Where(u => !u.IsAdmin).CountAsync();
 
         return Ok(new { transactionsByStatus = txStats, totalFeesCollected = feeTotal, openDisputes = disputeCount, totalUsers = userCount });
     }
@@ -281,11 +284,14 @@ public class AdminController(AppDbContext db, TransactionService txService) : Co
         [FromQuery] int page = 1,
         [FromQuery] int size = 50,
         [FromQuery] string? search = null,
-        [FromQuery] DateTime? fromDate = null,
-        [FromQuery] DateTime? toDate = null)
+        [FromQuery] string? fromDate = null,
+        [FromQuery] string? toDate = null)
     {
         size = Math.Clamp(size, 1, 200);
         page = Math.Max(1, page);
+
+        DateTime? from = DateTime.TryParse(fromDate, out var fd) ? fd.ToUniversalTime() : null;
+        DateTime? to   = DateTime.TryParse(toDate,   out var td) ? td.ToUniversalTime().AddDays(1) : null;
 
         var query = db.AuditLogs
             .Where(a => a.TransactionId != Guid.Empty)
@@ -294,8 +300,8 @@ public class AdminController(AppDbContext db, TransactionService txService) : Co
         if (!string.IsNullOrWhiteSpace(search))
             query = query.Where(a => a.TriggerActor.Contains(search) || a.ActionDetails.Contains(search));
 
-        if (fromDate.HasValue) query = query.Where(a => a.Timestamp >= fromDate.Value);
-        if (toDate.HasValue)   query = query.Where(a => a.Timestamp <= toDate.Value);
+        if (from.HasValue) query = query.Where(a => a.Timestamp >= from.Value);
+        if (to.HasValue)   query = query.Where(a => a.Timestamp <= to.Value);
 
         var total = await query.CountAsync();
         var items = await query
