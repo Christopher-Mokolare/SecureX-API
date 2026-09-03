@@ -29,7 +29,7 @@ public class OzowPaymentController(
         var resolvedSiteCode = siteCode ?? config["Ozow:SiteCode"]!;
         var accessToken      = config["Ozow:AccessToken"];
 
-        var isAdminOverride = env.IsDevelopment()
+        var isAdminOverride = (env.IsDevelopment() || env.IsStaging())
             && Request.Headers.TryGetValue("Authorization", out var auth)
             && auth.ToString() == $"Bearer {accessToken}";
 
