@@ -314,6 +314,7 @@ public class TransactionsController(TransactionService txService, AppDbContext d
         var baseUrl = config["SmileId:BaseUrl"] ?? "";
         var isSandbox = baseUrl.Contains("testapi", StringComparison.OrdinalIgnoreCase) ||
                         baseUrl.Contains("sandbox", StringComparison.OrdinalIgnoreCase);
+
         return Ok(new
         {
             token,
@@ -322,10 +323,8 @@ public class TransactionsController(TransactionService txService, AppDbContext d
             callbackUrl = config["SmileId:CallbackUrl"] ?? "",
             partnerId = config["SmileId:PartnerId"] ?? "",
             userId = tx.Seller.Id.ToString(),
-            userDetails = isSandbox
-                ? new { given_names = "Amina Fatou", last_name = "Clearwater", email = "amina.clearwater@example.com", phone_number = "+27821234567" }
-                : new { given_names = GetGivenNames(tx.Seller.FullName), last_name = GetLastName(tx.Seller.FullName), email = tx.Seller.Email, phone_number = NormalizePhone(tx.Seller.Phone) },
-            idInfo = new { id_number = isSandbox ? "0000000000000" : tx.Seller.IdNumber, country = "ZA", id_type = "NATIONAL_ID" },
+            userDetails = new { given_names = GetGivenNames(tx.Seller.FullName), last_name = GetLastName(tx.Seller.FullName), email = tx.Seller.Email, phone_number = NormalizePhone(tx.Seller.Phone) },
+            idInfo = new { id_number = isSandbox ? "0000000000000" : tx.Seller.IdNumber, country = "ZA", id_type = "NATIONAL_ID", entered = true },
             partnerParams = new
             {
                 internal_reference = tx.Id.ToString(),
