@@ -173,7 +173,6 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             {
                 Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
             };
-            request.Headers.Add("Authorization", $"Bearer {apiKey}");
             var response = await httpFactory.CreateClient("SmileId").SendAsync(request);
             var responseBody = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
