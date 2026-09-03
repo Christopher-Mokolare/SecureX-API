@@ -33,7 +33,10 @@ public class ReconciliationService(IServiceScopeFactory scopeFactory, IHttpClien
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var inFlight = await db.Transactions
-            .Where(t => InFlightStatuses.Contains(t.Status))
+            .Where(t => t.Status == TransactionStatus.PaymentPending ||
+                        t.Status == TransactionStatus.FundsSecured ||
+                        t.Status == TransactionStatus.LogisticsPending ||
+                        t.Status == TransactionStatus.ItemDelivered)
             .ToListAsync(ct);
 
         var expectedFloat = inFlight.Sum(t => t.ItemValue + t.PlatformFee);
