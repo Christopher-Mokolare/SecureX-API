@@ -21,6 +21,15 @@ public class AuthController(AppDbContext db) : ControllerBase
 
         var user = await db.Users.FirstOrDefaultAsync(u => u.Email == req.Email.ToLowerInvariant());
 
+        // Admin accounts require a password
+        if (user?.IsAdmin == true)
+        {
+            if (string.IsNullOrWhiteSpace(req.Password))
+                return Unauthorized(new ErrorResponse { Error = "Password required" });
+            if (user.PasswordHash is null || !BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash))
+                return Unauthorized(new ErrorResponse { Error = "Invalid credentials" });
+        }
+
         var secret = Environment.GetEnvironmentVariable("JWT_SECRET")
             ?? HttpContext.RequestServices.GetRequiredService<IConfiguration>()["JWT_SECRET"]!;
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
@@ -44,4 +53,5 @@ public class AuthController(AppDbContext db) : ControllerBase
 public class TokenRequest
 {
     public string Email { get; set; } = "";
+    public string? Password { get; set; }
 }

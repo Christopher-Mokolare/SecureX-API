@@ -31,6 +31,7 @@ public class User
     public KycStatus IdCheckStatus { get; set; } = KycStatus.Pending;
     public KycStatus AmlStatus { get; set; } = KycStatus.Pending;
     public KycStatus LivenessStatus { get; set; } = KycStatus.Pending;
+    public string? PasswordHash { get; set; }           // only set for admin accounts
     public bool IsAdmin { get; set; } = false;
     public bool IsSuspended { get; set; } = false;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

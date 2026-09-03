@@ -34,6 +34,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.LivenessStatus)
                 .HasColumnName("liveness_status")
                 .HasConversion<string>();
+            e.Property(x => x.PasswordHash).HasColumnName("password_hash");
             e.Property(x => x.CreatedAt).HasColumnName("created_at");
             e.Property(x => x.UpdatedAt).HasColumnName("updated_at");
         });
