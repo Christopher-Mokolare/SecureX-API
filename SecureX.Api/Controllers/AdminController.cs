@@ -225,9 +225,9 @@ public class AdminController(AppDbContext db, TransactionService txService) : Co
         var user = await db.Users.FindAsync(id);
         if (user is null) return NotFound();
 
-        if (req.IdCheckStatus.HasValue) user.IdCheckStatus = req.IdCheckStatus.Value;
-        if (req.AmlStatus.HasValue)     user.AmlStatus     = req.AmlStatus.Value;
-        if (req.LivenessStatus.HasValue) user.LivenessStatus = req.LivenessStatus.Value;
+        if (Enum.TryParse<KycStatus>(req.IdCheckStatus, true, out var idCheck)) user.IdCheckStatus = idCheck;
+        if (Enum.TryParse<KycStatus>(req.AmlStatus,      true, out var aml))     user.AmlStatus     = aml;
+        if (Enum.TryParse<KycStatus>(req.LivenessStatus, true, out var liveness)) user.LivenessStatus = liveness;
         user.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
 
@@ -378,9 +378,9 @@ public class AdminController(AppDbContext db, TransactionService txService) : Co
 
 public class KycOverrideRequest
 {
-    public KycStatus? IdCheckStatus { get; set; }
-    public KycStatus? AmlStatus { get; set; }
-    public KycStatus? LivenessStatus { get; set; }
+    public string? IdCheckStatus { get; set; }
+    public string? AmlStatus { get; set; }
+    public string? LivenessStatus { get; set; }
 }
 
 public class SuspendRequest { public bool Suspended { get; set; } }
