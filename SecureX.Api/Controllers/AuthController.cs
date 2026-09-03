@@ -14,7 +14,6 @@ namespace SecureX.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/auth")]
-[IgnoreAntiforgeryToken]
 public class AuthController : ControllerBase
 {
     [HttpPost("token")]

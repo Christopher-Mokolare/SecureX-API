@@ -9,7 +9,6 @@ namespace SecureX.Api.Controllers;
 [ApiController]
 [Route("api/transactions")]
 [Microsoft.AspNetCore.Authorization.Authorize]
-[IgnoreAntiforgeryToken]
 public class TransactionsController(TransactionService txService, AppDbContext db, OzowCollectionService collectionService, IConfiguration config) : ControllerBase
 {
     // ── POST /api/transactions — submit deal form ────────────────────────────
@@ -293,6 +292,7 @@ public class TransactionsController(TransactionService txService, AppDbContext d
 
     // ── POST /api/transactions/{id}/start-seller-kyc ─────────────────────────
     [HttpPost("{id:guid}/start-seller-kyc")]
+    [Microsoft.AspNetCore.Authorization.AllowAnonymous]
     public async Task<IActionResult> StartSellerKyc(Guid id)
     {
         var tx = await db.Transactions.Include(t => t.Seller).FirstOrDefaultAsync(t => t.Id == id);
@@ -324,7 +324,7 @@ public class TransactionsController(TransactionService txService, AppDbContext d
             partnerId = config["SmileId:PartnerId"] ?? "",
             userId = tx.Seller.Id.ToString(),
             userDetails = new { given_names = GetGivenNames(tx.Seller.FullName), last_name = GetLastName(tx.Seller.FullName), email = tx.Seller.Email, phone_number = NormalizePhone(tx.Seller.Phone) },
-            idInfo = new { ZA = new { NATIONAL_ID = new { id_number = isSandbox ? "0000000000000" : tx.Seller.IdNumber } } },
+            idInfo = new { id_number = isSandbox ? "0000000000000" : tx.Seller.IdNumber, country = "ZA", id_type = "NATIONAL_ID" },
             partnerParams = new
             {
                 internal_reference = tx.Id.ToString(),
