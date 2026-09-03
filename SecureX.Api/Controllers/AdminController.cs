@@ -188,7 +188,7 @@ public class AdminController(AppDbContext db, TransactionService txService) : Co
         size = Math.Clamp(size, 1, 100);
         page = Math.Max(1, page);
 
-        var query = db.Users.AsQueryable();
+        var query = db.Users.Where(u => !u.IsAdmin).AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(search))
             query = query.Where(u => u.Email.Contains(search) || u.FullName.Contains(search));
