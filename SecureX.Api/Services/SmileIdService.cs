@@ -164,13 +164,12 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             full_name = fullName,
             strict_match = true,
             search_existing_user = false,
-            partner_params = new { deal_reference = dealReference, job_type = "10" }
+            deal_reference = dealReference,
         };
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v1/aml")
-            {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v1/one-time-aml-screening")            {
                 Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
             };
             var response = await httpFactory.CreateClient("SmileId").SendAsync(request);
