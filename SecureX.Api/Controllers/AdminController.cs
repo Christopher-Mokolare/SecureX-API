@@ -12,7 +12,7 @@ namespace SecureX.Api.Controllers;
 [ApiController]
 [Route("api/admin")]
 [Authorize(Roles = "Admin")]
-public class AdminController(AppDbContext db, TransactionService txService) : ControllerBase
+public class AdminController(AppDbContext db, TransactionService txService, SmileIdService smileIdService, IConfiguration config) : ControllerBase
 {
     private string CallerEmail => User.FindFirstValue(ClaimTypes.Email) ?? "unknown";
 
@@ -294,6 +294,122 @@ public class AdminController(AppDbContext db, TransactionService txService) : Co
         await db.SaveChangesAsync();
 
         return Ok(MapUser(user));
+    }
+
+    // ── GET /api/admin/reconciliation ─────────────────────────────────────────
+    [HttpGet("reconciliation")]
+    public async Task<IActionResult> Reconciliation([FromQuery] int page = 1, [FromQuery] int size = 30)
+    {
+        size = Math.Clamp(size, 1, 100);
+        var total = await db.ReconciliationReports.CountAsync();
+        var items = await db.ReconciliationReports
+            .OrderByDescending(r => r.RunAt)
+            .Skip((page - 1) * size)
+            .Take(size)
+            .Select(r => new { r.Id, r.RunAt, r.ExpectedFloat, r.OzowFloat, r.Discrepancy, r.AlertFired })
+            .ToListAsync();
+        return Ok(new { total, page, size, items });
+    }
+
+    // ── GET /api/admin/payout-failures ────────────────────────────────────────
+    [HttpGet("payout-failures")]
+    public async Task<IActionResult> PayoutFailures([FromQuery] int page = 1, [FromQuery] int size = 50)
+    {
+        size = Math.Clamp(size, 1, 200);
+        var query = db.PayoutNotifications
+            .Where(n => n.Status == 99 || n.Status == 4 || n.Status == 90)
+            .OrderByDescending(n => n.CreatedAt);
+        var total = await query.CountAsync();
+        var items = await query
+            .Skip((page - 1) * size)
+            .Take(size)
+            .Select(n => new { n.Id, n.PayoutId, n.MerchantReference, n.Status, n.SubStatus, n.Reason, n.HashValid, n.Duplicate, n.CreatedAt })
+            .ToListAsync();
+        return Ok(new { total, page, size, items });
+    }
+
+    // ── GET /api/admin/missing-payouts ────────────────────────────────────────
+    // Completed transactions that have no pending_payout record at all — seller never got paid.
+    [HttpGet("missing-payouts")]
+    public async Task<IActionResult> MissingPayouts()
+    {
+        var completedRefs = await db.Transactions
+            .Where(t => t.Status == TransactionStatus.Completed)
+            .Include(t => t.Seller)
+            .ToListAsync();
+
+        var refsWithPayout = await db.PendingPayouts
+            .Select(p => p.DealReference)
+            .ToListAsync();
+
+        var missing = completedRefs
+            .Where(t => !refsWithPayout.Contains(t.DealReference))
+            .Select(t => new
+            {
+                t.Id,
+                t.DealReference,
+                t.ItemValue,
+                t.SellerFee,
+                SellerPayout = t.ItemValue - t.SellerFee,
+                SellerEmail = t.Seller?.Email,
+                SellerKycComplete = t.Seller != null &&
+                    t.Seller.IdCheckStatus == KycStatus.Approved &&
+                    t.Seller.AmlStatus == KycStatus.Approved &&
+                    t.Seller.LivenessStatus == KycStatus.Approved,
+                SellerHasBank = !string.IsNullOrWhiteSpace(t.Seller?.BankAccountNumber),
+                t.CreatedAt,
+            })
+            .ToList();
+
+        return Ok(missing);
+    }
+
+    // ── POST /api/admin/users/{id}/retry-kyc ──────────────────────────────────
+    // Re-submits SmileID Enhanced KYC for a buyer whose webhook never arrived.
+    [HttpPost("users/{id:guid}/retry-kyc")]
+    public async Task<IActionResult> RetryKyc(Guid id)
+    {
+        var user = await db.Users.FindAsync(id);
+        if (user is null) return NotFound();
+
+        if (user.IdCheckStatus == KycStatus.Approved)
+            return BadRequest(new ErrorResponse { Error = "User KYC is already Approved" });
+
+        // Find the most recent transaction for this buyer to use as deal reference context
+        var tx = await db.Transactions
+            .Where(t => t.BuyerId == id)
+            .OrderByDescending(t => t.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (tx is null)
+            return BadRequest(new ErrorResponse { Error = "No transaction found for this user" });
+
+        var smileBaseUrl = config["SmileId:BaseUrl"] ?? "";
+        var isSandbox = smileBaseUrl.Contains("testapi", StringComparison.OrdinalIgnoreCase) ||
+                        smileBaseUrl.Contains("sandbox", StringComparison.OrdinalIgnoreCase);
+        var kycIdNumber = isSandbox ? "0000000000000" : user.IdNumber;
+
+        var jobId = await smileIdService.SubmitEnhancedKycAsync(
+            user.FullName, kycIdNumber, user.Email, user.Phone, tx.DealReference);
+
+        if (jobId is null)
+            return StatusCode(502, new ErrorResponse { Error = "SmileID KYC re-submission failed" });
+
+        user.SmileIdJobId = jobId;
+        user.IdCheckStatus = KycStatus.Pending;
+        user.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        db.AuditLogs.Add(new AuditLog
+        {
+            TransactionId = null,
+            NewStatus = TransactionStatus.PaymentPending,
+            TriggerActor = CallerEmail,
+            ActionDetails = $"Admin re-triggered SmileID KYC for user {id} — new jobId={jobId}",
+        });
+        await db.SaveChangesAsync();
+
+        return Ok(new { jobId, message = "KYC re-submitted" });
     }
 
     // ── GET /api/admin/stats ──────────────────────────────────────────────────
