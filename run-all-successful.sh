@@ -7,14 +7,14 @@ set -euo pipefail
 API_BASE="https://api.secureexchange.co.za"
 PAYOUT_API="https://stagingpayoutsapi.ozow.com/v1"
 SITE_CODE="SEC-SEC-004"
-PAYOUT_API_KEY="${OZOW_PAYOUT_API_KEY:-mMPd7XC1zJjDSAh5Wcpf9I6XBl}"
+PAYOUT_API_KEY="${OZOW_PAYOUT_API_KEY:?Set OZOW_PAYOUT_API_KEY}"
 FNB_BANK_ID="3284a0ad-ba78-4838-8c2b-102981286a2b"
 FNB_BRANCH="632005"
 VALID_ACCOUNT="4050338500"
 PGHOST="securex-db.chiwk8mqor05.af-south-1.rds.amazonaws.com"
 PGUSER="securex"
 PGDB="securex"
-export PGPASSWORD='SecureX2025!'
+export PGPASSWORD="${PGPASSWORD:?Set PGPASSWORD}"
 TS=$(date +%s)
 
 echo "========================================"

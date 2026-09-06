@@ -19,12 +19,12 @@ API_BASE="https://api.secureexchange.co.za"
 PAYOUT_API="https://stagingpayoutsapi.ozow.com/v1"
 MOCK_API="https://stagingpayoutsapi.ozow.com/mock/v1"
 SITE_CODE="SEC-SEC-004"
-OZOW_PAYOUT_API_KEY="mMPd7XC1zJjDSAh5Wcpf9I6XBl"
+OZOW_PAYOUT_API_KEY="${OZOW_PAYOUT_API_KEY:?Set OZOW_PAYOUT_API_KEY}"
 
 PGHOST="securex-db.chiwk8mqor05.af-south-1.rds.amazonaws.com"
 PGUSER="securex"
 PGDB="securex"
-export PGPASSWORD='SecureX2025!'
+export PGPASSWORD="${PGPASSWORD:?Set PGPASSWORD}"
 
 FNB_BANK_ID="4816019c-3314-4c80-8b6b-b2cd16dcc4ec"
 FNB_BRANCH="250655"

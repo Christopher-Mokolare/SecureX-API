@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SITE_CODE="SEC-SEC-004"
-API_KEY="mMPd7XC1zJjDSAh5Wcpf9I6XBl"
+API_KEY="${OZOW_PAYOUT_API_KEY:?Set OZOW_PAYOUT_API_KEY}"
 BASE_URL="https://stagingpayoutsapi.ozow.com/v1"
 NOTIFY_URL="https://securex-api-vjf3.onrender.com/securex/payout-notification"
 VERIFY_URL="https://furnacelike-adrienne-fourpenny.ngrok-free.dev/securex/payout-verify"

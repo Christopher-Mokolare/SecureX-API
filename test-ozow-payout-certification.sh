@@ -27,12 +27,12 @@
 set -euo pipefail
 
 SITE_CODE="SEC-SEC-004"
-API_KEY="mMPd7XC1zJjDSAh5Wcpf9I6XBl"
+API_KEY="${OZOW_PAYOUT_API_KEY:?Set OZOW_PAYOUT_API_KEY}"
 BASE_URL="https://stagingpayoutsapi.ozow.com/v1"
 MOCK_URL="https://stagingpayoutsapi.ozow.com/mock/v1"
 NOTIFY_URL="https://securex-api-vjf3.onrender.com/securex/payout-notification"
 VERIFY_URL="https://securex-api-vjf3.onrender.com/securex/payout-verify"
-ENCRYPTION_KEY="3LSEBxE5dG1La5ei1acb4jYm"
+ENCRYPTION_KEY="${OZOW_ACCOUNT_NUMBER_DECRYPTION_KEY:?Set OZOW_ACCOUNT_NUMBER_DECRYPTION_KEY}"
 
 # FNB — matches previously completed payouts on staging
 BANK_GROUP_ID="4816019c-3314-4c80-8b6b-b2cd16dcc4ec"
