@@ -12,7 +12,12 @@ namespace SecureX.Api.Controllers;
 [ApiController]
 [Route("api/admin")]
 [Authorize(Roles = "Admin")]
-public class AdminController(AppDbContext db, TransactionService txService, SmileIdService smileIdService, IConfiguration config) : ControllerBase
+public class AdminController(
+    AppDbContext db,
+    TransactionService txService,
+    SmileIdService smileIdService,
+    IConfiguration config,
+    ILogger<AdminController> logger) : ControllerBase
 {
     private string CallerEmail => User.FindFirstValue(ClaimTypes.Email) ?? "unknown";
 
@@ -26,11 +31,15 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
         [FromQuery] string? fromDate = null,
         [FromQuery] string? toDate = null)
     {
+        logger.LogInformation("=== GET TRANSACTIONS ===");
+        logger.LogInformation("Page: {Page}, Size: {Size}, Status: {Status}, Search: {Search}", page, size, status, search);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
         size = Math.Clamp(size, 1, 100);
         page = Math.Max(1, page);
 
         DateTime? from = DateTime.TryParse(fromDate, out var fd) ? fd.ToUniversalTime() : null;
-        DateTime? to   = DateTime.TryParse(toDate,   out var td) ? td.ToUniversalTime().AddDays(1) : null;
+        DateTime? to = DateTime.TryParse(toDate, out var td) ? td.ToUniversalTime().AddDays(1) : null;
 
         var query = db.Transactions
             .Include(t => t.Buyer)
@@ -48,7 +57,7 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
                 (t.Seller != null && t.Seller.Email.Contains(search)));
 
         if (from.HasValue) query = query.Where(t => t.CreatedAt >= from.Value);
-        if (to.HasValue)   query = query.Where(t => t.CreatedAt <= to.Value);
+        if (to.HasValue) query = query.Where(t => t.CreatedAt <= to.Value);
 
         var total = await query.CountAsync();
         var items = await query
@@ -57,9 +66,13 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
             .Take(size)
             .ToListAsync();
 
+        logger.LogInformation("GET TRANSACTIONS: Found {Total} total", total);
+
         return Ok(new
         {
-            total, page, size,
+            total,
+            page,
+            size,
             pages = (int)Math.Ceiling((double)total / size),
             items = items.Select(MapTransaction),
         });
@@ -73,8 +86,11 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
         [FromQuery] string? fromDate = null,
         [FromQuery] string? toDate = null)
     {
+        logger.LogInformation("=== EXPORT TRANSACTIONS ===");
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
         DateTime? from = DateTime.TryParse(fromDate, out var fd) ? fd.ToUniversalTime() : null;
-        DateTime? to   = DateTime.TryParse(toDate,   out var td) ? td.ToUniversalTime().AddDays(1) : null;
+        DateTime? to = DateTime.TryParse(toDate, out var td) ? td.ToUniversalTime().AddDays(1) : null;
 
         var query = db.Transactions
             .Include(t => t.Buyer)
@@ -92,7 +108,7 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
                 (t.Seller != null && t.Seller.Email.Contains(search)));
 
         if (from.HasValue) query = query.Where(t => t.CreatedAt >= from.Value);
-        if (to.HasValue)   query = query.Where(t => t.CreatedAt <= to.Value);
+        if (to.HasValue) query = query.Where(t => t.CreatedAt <= to.Value);
 
         var items = await query.OrderByDescending(t => t.CreatedAt).ToListAsync();
 
@@ -101,6 +117,8 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
         foreach (var t in items)
             sb.AppendLine($"{t.DealReference},{CsvEscape(t.ItemTitle)},{CsvEscape(t.Seller?.Email)},{CsvEscape(t.Buyer?.Email)},{t.ItemValue},{t.PlatformFee},{t.TotalCheckoutAmount},{t.ServiceType},{t.Status},{t.CreatedAt:yyyy-MM-dd}");
 
+        logger.LogInformation("EXPORT TRANSACTIONS: Exporting {Count} transactions", items.Count);
+
         return File(Encoding.UTF8.GetBytes(sb.ToString()), "text/csv", $"transactions-{DateTime.UtcNow:yyyyMMdd}.csv");
     }
 
@@ -108,18 +126,28 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
     [HttpGet("transactions/{id:guid}")]
     public async Task<IActionResult> GetTransaction(Guid id)
     {
+        logger.LogInformation("=== GET TRANSACTION DETAIL ===");
+        logger.LogInformation("TransactionId: {Id}", id);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
         var tx = await db.Transactions
             .Include(t => t.Buyer)
             .Include(t => t.Seller)
             .Include(t => t.AuditLogs)
             .FirstOrDefaultAsync(t => t.Id == id);
 
-        if (tx is null) return NotFound();
+        if (tx is null)
+        {
+            logger.LogWarning("Transaction not found: {Id}", id);
+            return NotFound();
+        }
 
         var payout = await db.PendingPayouts
             .Where(p => p.DealReference == tx.DealReference)
             .OrderByDescending(p => p.SubmittedAt)
             .FirstOrDefaultAsync();
+
+        logger.LogInformation("Transaction found: {DealReference}, Status: {Status}", tx.DealReference, tx.Status);
 
         return Ok(new
         {
@@ -148,42 +176,71 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
     [HttpPost("transactions/{id:guid}/resolve-dispute")]
     public async Task<IActionResult> ResolveDispute(Guid id, [FromBody] ResolveDisputeRequest req)
     {
+        logger.LogInformation("=== RESOLVE DISPUTE ===");
+        logger.LogInformation("TransactionId: {Id}, Decision: {Decision}", id, req.Decision);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
         if (req.Decision is not ("release-to-seller" or "refund-to-buyer"))
+        {
+            logger.LogWarning("Invalid dispute decision: {Decision}", req.Decision);
             return BadRequest(new ErrorResponse { Error = "Decision must be 'release-to-seller' or 'refund-to-buyer'" });
+        }
+
         try
         {
             var tx = await txService.ResolveDisputeAsync(id, req.Decision, CallerEmail);
+            logger.LogInformation("Dispute resolved successfully: {Id}", id);
             return Ok(MapTransaction(tx));
         }
-        catch (KeyNotFoundException) { return NotFound(); }
-        catch (InvalidOperationException ex) { return BadRequest(new ErrorResponse { Error = ex.Message }); }
+        catch (KeyNotFoundException)
+        {
+            logger.LogWarning("Transaction not found for dispute: {Id}", id);
+            return NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning("Invalid operation for dispute: {Id}, Error: {Error}", id, ex.Message);
+            return BadRequest(new ErrorResponse { Error = ex.Message });
+        }
     }
 
     // ── POST /api/admin/transactions/{id}/advance ─────────────────────────────
-    // Allows admin to manually advance a stuck transaction to the next valid status.
     [HttpPost("transactions/{id:guid}/advance")]
     public async Task<IActionResult> AdvanceTransaction(Guid id, [FromBody] AdvanceTransactionRequest req)
     {
+        logger.LogInformation("=== ADVANCE TRANSACTION ===");
+        logger.LogInformation("TransactionId: {Id}, ToStatus: {ToStatus}", id, req.ToStatus);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
         if (!Enum.TryParse<TransactionStatus>(req.ToStatus, true, out var toStatus))
+        {
+            logger.LogWarning("Unknown status: {Status}", req.ToStatus);
             return BadRequest(new ErrorResponse { Error = $"Unknown status '{req.ToStatus}'" });
+        }
 
         var tx = await db.Transactions.Include(t => t.Seller).Include(t => t.Buyer)
             .FirstOrDefaultAsync(t => t.Id == id);
-        if (tx is null) return NotFound();
+        if (tx is null)
+        {
+            logger.LogWarning("Transaction not found: {Id}", id);
+            return NotFound();
+        }
 
-        // Allowed admin advances per current status
         var allowed = tx.Status switch
         {
-            TransactionStatus.PaymentPending   => new[] { TransactionStatus.FundsSecured },
-            TransactionStatus.FundsSecured     => new[] { TransactionStatus.LogisticsPending },
+            TransactionStatus.PaymentPending => new[] { TransactionStatus.FundsSecured },
+            TransactionStatus.FundsSecured => new[] { TransactionStatus.LogisticsPending },
             TransactionStatus.LogisticsPending => new[] { TransactionStatus.ItemDelivered },
-            TransactionStatus.ItemDelivered    => new[] { TransactionStatus.Completed, TransactionStatus.RequiresRefund },
-            TransactionStatus.RequiresRefund   => new[] { TransactionStatus.Completed, TransactionStatus.Refunded },
+            TransactionStatus.ItemDelivered => new[] { TransactionStatus.Completed, TransactionStatus.RequiresRefund },
+            TransactionStatus.RequiresRefund => new[] { TransactionStatus.Completed, TransactionStatus.Refunded },
             _ => Array.Empty<TransactionStatus>()
         };
 
         if (!allowed.Contains(toStatus))
+        {
+            logger.LogWarning("Cannot advance from {Current} to {Target}", tx.Status, toStatus);
             return BadRequest(new ErrorResponse { Error = $"Cannot advance from {tx.Status} to {toStatus}" });
+        }
 
         try
         {
@@ -193,19 +250,36 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
             if (toStatus == TransactionStatus.Completed)
                 _ = txService.TriggerPayoutAsync(updated);
 
+            logger.LogInformation("Transaction advanced: {Id} from {Old} to {New}", id, tx.Status, toStatus);
             return Ok(MapTransaction(updated));
         }
-        catch (InvalidOperationException ex) { return BadRequest(new ErrorResponse { Error = ex.Message }); }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning("Invalid operation for advance: {Id}, Error: {Error}", id, ex.Message);
+            return BadRequest(new ErrorResponse { Error = ex.Message });
+        }
     }
 
     // ── POST /api/admin/transactions/{id}/retry-payout ────────────────────────
     [HttpPost("transactions/{id:guid}/retry-payout")]
     public async Task<IActionResult> RetryPayout(Guid id)
     {
+        logger.LogInformation("=== RETRY PAYOUT ===");
+        logger.LogInformation("TransactionId: {Id}", id);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
         var tx = await db.Transactions.Include(t => t.Seller).FirstOrDefaultAsync(t => t.Id == id);
-        if (tx is null) return NotFound();
+        if (tx is null)
+        {
+            logger.LogWarning("Transaction not found: {Id}", id);
+            return NotFound();
+        }
+
         if (tx.Status != TransactionStatus.Completed)
+        {
+            logger.LogWarning("Cannot retry payout: Transaction not completed. Status: {Status}", tx.Status);
             return BadRequest(new ErrorResponse { Error = $"Transaction must be Completed to retry payout (current: {tx.Status})" });
+        }
 
         var stale = await db.PendingPayouts
             .Where(p => p.DealReference == tx.DealReference && !p.Resolved)
@@ -215,6 +289,8 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
 
         var retryRef = $"{tx.DealReference}-R{DateTime.UtcNow:yyMMddHHmmss}";
         await txService.TriggerPayoutAsync(tx, retryRef);
+
+        logger.LogInformation("Payout retried for: {DealReference}", tx.DealReference);
         return Ok(new { dealReference = tx.DealReference, retryReference = retryRef, message = "Payout resubmitted" });
     }
 
@@ -227,6 +303,10 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
         [FromQuery] string? kycStatus = null,
         [FromQuery] bool? suspended = null)
     {
+        logger.LogInformation("=== GET USERS ===");
+        logger.LogInformation("Page: {Page}, Size: {Size}, Search: {Search}", page, size, search);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
         size = Math.Clamp(size, 1, 100);
         page = Math.Max(1, page);
 
@@ -249,9 +329,13 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
             .Take(size)
             .ToListAsync();
 
+        logger.LogInformation("GET USERS: Found {Total} total", total);
+
         return Ok(new
         {
-            total, page, size,
+            total,
+            page,
+            size,
             pages = (int)Math.Ceiling((double)total / size),
             items = items.Select(MapUser),
         });
@@ -261,11 +345,20 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
     [HttpPatch("users/{id:guid}/kyc")]
     public async Task<IActionResult> OverrideKyc(Guid id, [FromBody] KycOverrideRequest req)
     {
+        logger.LogInformation("=== OVERRIDE KYC ===");
+        logger.LogInformation("UserId: {Id}, IdCheck: {IdCheck}, AML: {Aml}, Liveness: {Liveness}", 
+            id, req.IdCheckStatus, req.AmlStatus, req.LivenessStatus);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
         var user = await db.Users.FindAsync(id);
-        if (user is null) return NotFound();
+        if (user is null)
+        {
+            logger.LogWarning("User not found: {Id}", id);
+            return NotFound();
+        }
 
         if (Enum.TryParse<KycStatus>(req.IdCheckStatus, true, out var idCheck)) user.IdCheckStatus = idCheck;
-        if (Enum.TryParse<KycStatus>(req.AmlStatus,      true, out var aml))     user.AmlStatus     = aml;
+        if (Enum.TryParse<KycStatus>(req.AmlStatus, true, out var aml)) user.AmlStatus = aml;
         if (Enum.TryParse<KycStatus>(req.LivenessStatus, true, out var liveness)) user.LivenessStatus = liveness;
         user.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
@@ -276,8 +369,11 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
             NewStatus = TransactionStatus.PaymentPending,
             TriggerActor = CallerEmail,
             ActionDetails = $"Admin KYC override on user {id}: IdCheck={req.IdCheckStatus}, AML={req.AmlStatus}, Liveness={req.LivenessStatus}",
+            Timestamp = DateTime.UtcNow
         });
         await db.SaveChangesAsync();
+
+        logger.LogInformation("KYC override successful for user: {Id}", id);
 
         return Ok(MapUser(user));
     }
@@ -286,12 +382,33 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
     [HttpPatch("users/{id:guid}/suspend")]
     public async Task<IActionResult> SuspendUser(Guid id, [FromBody] SuspendRequest req)
     {
+        logger.LogInformation("=== SUSPEND USER ===");
+        logger.LogInformation("UserId: {Id}, Suspended: {Suspended}", id, req.Suspended);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
         var user = await db.Users.FindAsync(id);
-        if (user is null) return NotFound();
+        if (user is null)
+        {
+            logger.LogWarning("User not found: {Id}", id);
+            return NotFound();
+        }
 
         user.IsSuspended = req.Suspended;
         user.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
+
+        // Log to audit log table
+        db.AuditLogs.Add(new AuditLog
+        {
+            TransactionId = null,
+            NewStatus = TransactionStatus.PaymentPending,
+            TriggerActor = CallerEmail,
+            ActionDetails = $"Admin {(req.Suspended ? "suspended" : "unsuspended")} user {id}",
+            Timestamp = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        logger.LogInformation("User suspension updated: {Id}, Suspended: {Suspended}", id, req.Suspended);
 
         return Ok(MapUser(user));
     }
@@ -300,6 +417,10 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
     [HttpGet("reconciliation")]
     public async Task<IActionResult> Reconciliation([FromQuery] int page = 1, [FromQuery] int size = 30)
     {
+        logger.LogInformation("=== GET RECONCILIATION ===");
+        logger.LogInformation("Page: {Page}, Size: {Size}", page, size);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
         size = Math.Clamp(size, 1, 100);
         var total = await db.ReconciliationReports.CountAsync();
         var items = await db.ReconciliationReports
@@ -308,6 +429,9 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
             .Take(size)
             .Select(r => new { r.Id, r.RunAt, r.ExpectedFloat, r.OzowFloat, r.Discrepancy, r.AlertFired })
             .ToListAsync();
+
+        logger.LogInformation("GET RECONCILIATION: Found {Total} total", total);
+
         return Ok(new { total, page, size, items });
     }
 
@@ -315,6 +439,10 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
     [HttpGet("payout-failures")]
     public async Task<IActionResult> PayoutFailures([FromQuery] int page = 1, [FromQuery] int size = 50)
     {
+        logger.LogInformation("=== GET PAYOUT FAILURES ===");
+        logger.LogInformation("Page: {Page}, Size: {Size}", page, size);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
         size = Math.Clamp(size, 1, 200);
         var query = db.PayoutNotifications
             .Where(n => n.Status == 99 || n.Status == 4 || n.Status == 90)
@@ -325,14 +453,19 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
             .Take(size)
             .Select(n => new { n.Id, n.PayoutId, n.MerchantReference, n.Status, n.SubStatus, n.Reason, n.HashValid, n.Duplicate, n.CreatedAt })
             .ToListAsync();
+
+        logger.LogInformation("GET PAYOUT FAILURES: Found {Total} total", total);
+
         return Ok(new { total, page, size, items });
     }
 
     // ── GET /api/admin/missing-payouts ────────────────────────────────────────
-    // Completed transactions that have no pending_payout record at all — seller never got paid.
     [HttpGet("missing-payouts")]
     public async Task<IActionResult> MissingPayouts()
     {
+        logger.LogInformation("=== GET MISSING PAYOUTS ===");
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
         var completedRefs = await db.Transactions
             .Where(t => t.Status == TransactionStatus.Completed)
             .Include(t => t.Seller)
@@ -361,30 +494,60 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
             })
             .ToList();
 
+        logger.LogInformation("GET MISSING PAYOUTS: Found {Count} missing", missing.Count);
+
         return Ok(missing);
     }
 
     // ── POST /api/admin/users/{id}/retry-kyc ──────────────────────────────────
-    // Re-submits SmileID Enhanced KYC for a buyer whose webhook never arrived.
     [HttpPost("users/{id:guid}/retry-kyc")]
     public async Task<IActionResult> RetryKyc(Guid id)
     {
+        logger.LogInformation("=== RETRY KYC ===");
+        logger.LogInformation("UserId: {Id}", id);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
         var user = await db.Users.FindAsync(id);
-        if (user is null) return NotFound();
+        if (user is null)
+        {
+            logger.LogWarning("User not found: {Id}", id);
+            return NotFound(new ErrorResponse { Error = "User not found" });
+        }
 
         if (user.IdCheckStatus == KycStatus.Approved)
+        {
+            logger.LogWarning("KYC already approved for user: {Id}", id);
             return BadRequest(new ErrorResponse { Error = "User KYC is already Approved" });
+        }
 
-        // Find the most recent transaction for this buyer to use as deal reference context
+        // Check if SmileID is configured - DON'T auto-approve
+        var smileBaseUrl = config["SmileId:BaseUrl"] ?? "";
+        var smilePartnerId = config["SmileId:PartnerId"] ?? "";
+        var smileApiKey = config["SmileId:ApiKey"] ?? "";
+        var isSmileConfigured = !string.IsNullOrEmpty(smileBaseUrl) && 
+                                !string.IsNullOrEmpty(smilePartnerId) && 
+                                !string.IsNullOrEmpty(smileApiKey);
+
+        if (!isSmileConfigured)
+        {
+            logger.LogError("SmileID is not configured. Please set SmileId:BaseUrl, SmileId:PartnerId, and SmileId:ApiKey");
+            return StatusCode(503, new ErrorResponse { 
+                Error = "KYC service is not configured. Please contact the system administrator." 
+            });
+        }
+
+        // Find the most recent transaction for this buyer
         var tx = await db.Transactions
             .Where(t => t.BuyerId == id)
             .OrderByDescending(t => t.CreatedAt)
             .FirstOrDefaultAsync();
 
         if (tx is null)
+        {
+            logger.LogWarning("No transaction found for user: {Id}", id);
             return BadRequest(new ErrorResponse { Error = "No transaction found for this user" });
+        }
 
-        var smileBaseUrl = config["SmileId:BaseUrl"] ?? "";
         var isSandbox = smileBaseUrl.Contains("testapi", StringComparison.OrdinalIgnoreCase) ||
                         smileBaseUrl.Contains("sandbox", StringComparison.OrdinalIgnoreCase);
         var kycIdNumber = isSandbox ? "0000000000000" : user.IdNumber;
@@ -393,7 +556,10 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
             user.FullName, kycIdNumber, user.Email, user.Phone, tx.DealReference);
 
         if (jobId is null)
+        {
+            logger.LogError("SmileID KYC re-submission failed for user: {Id}", id);
             return StatusCode(502, new ErrorResponse { Error = "SmileID KYC re-submission failed" });
+        }
 
         user.SmileIdJobId = jobId;
         user.IdCheckStatus = KycStatus.Pending;
@@ -406,8 +572,11 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
             NewStatus = TransactionStatus.PaymentPending,
             TriggerActor = CallerEmail,
             ActionDetails = $"Admin re-triggered SmileID KYC for user {id} — new jobId={jobId}",
+            Timestamp = DateTime.UtcNow
         });
         await db.SaveChangesAsync();
+
+        logger.LogInformation("KYC retry successful for user: {Id}, JobId: {JobId}", id, jobId);
 
         return Ok(new { jobId, message = "KYC re-submitted" });
     }
@@ -416,6 +585,9 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
     [HttpGet("stats")]
     public async Task<IActionResult> Stats()
     {
+        logger.LogInformation("=== GET STATS ===");
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
         var txStats = await db.Transactions
             .GroupBy(t => t.Status)
             .Select(g => new { status = g.Key.ToString(), count = g.Count() })
@@ -438,7 +610,17 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
 
         var pendingPayouts = await db.PendingPayouts.CountAsync(p => !p.Resolved);
 
-        return Ok(new { transactionsByStatus = txStats, totalFeesCollected = feeTotal, openDisputes = disputeCount, totalUsers = userCount, fundsInEscrow, pendingPayouts });
+        logger.LogInformation("GET STATS: Fees={Fees}, Disputes={Disputes}, Users={Users}", feeTotal, disputeCount, userCount);
+
+        return Ok(new
+        {
+            transactionsByStatus = txStats,
+            totalFeesCollected = feeTotal,
+            openDisputes = disputeCount,
+            totalUsers = userCount,
+            fundsInEscrow,
+            pendingPayouts
+        });
     }
 
     // ── GET /api/admin/audit ──────────────────────────────────────────────────
@@ -450,21 +632,24 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
         [FromQuery] string? fromDate = null,
         [FromQuery] string? toDate = null)
     {
+        logger.LogInformation("=== GET AUDIT LOG ===");
+        logger.LogInformation("Page: {Page}, Size: {Size}, Search: {Search}", page, size, search);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
         size = Math.Clamp(size, 1, 200);
         page = Math.Max(1, page);
 
         DateTime? from = DateTime.TryParse(fromDate, out var fd) ? fd.ToUniversalTime() : null;
-        DateTime? to   = DateTime.TryParse(toDate,   out var td) ? td.ToUniversalTime().AddDays(1) : null;
+        DateTime? to = DateTime.TryParse(toDate, out var td) ? td.ToUniversalTime().AddDays(1) : null;
 
-        var query = db.AuditLogs
-            .Where(a => a.TransactionId != null)
-            .AsQueryable();
+        // FIX: Removed .Where(a => a.TransactionId != null) so KYC audit records are included
+        var query = db.AuditLogs.AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(search))
             query = query.Where(a => a.TriggerActor.Contains(search) || a.ActionDetails.Contains(search));
 
         if (from.HasValue) query = query.Where(a => a.Timestamp >= from.Value);
-        if (to.HasValue)   query = query.Where(a => a.Timestamp <= to.Value);
+        if (to.HasValue) query = query.Where(a => a.Timestamp <= to.Value);
 
         var total = await query.CountAsync();
         var items = await query
@@ -482,6 +667,8 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
                 a.Timestamp,
             })
             .ToListAsync();
+
+        logger.LogInformation("GET AUDIT LOG: Found {Total} total", total);
 
         return Ok(new { total, page, size, items });
     }
@@ -506,7 +693,10 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
         t.InspectionWindowEndsAt,
         Buyer = t.Buyer is null ? null : new
         {
-            t.Buyer.Id, t.Buyer.FullName, t.Buyer.Email, t.Buyer.Phone,
+            t.Buyer.Id,
+            t.Buyer.FullName,
+            t.Buyer.Email,
+            t.Buyer.Phone,
             IdCheckStatus = t.Buyer.IdCheckStatus.ToString(),
             AmlStatus = t.Buyer.AmlStatus.ToString(),
             LivenessStatus = t.Buyer.LivenessStatus.ToString(),
@@ -515,7 +705,10 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
         },
         Seller = t.Seller is null ? null : new
         {
-            t.Seller.Id, t.Seller.FullName, t.Seller.Email, t.Seller.Phone,
+            t.Seller.Id,
+            t.Seller.FullName,
+            t.Seller.Email,
+            t.Seller.Phone,
             IdCheckStatus = t.Seller.IdCheckStatus.ToString(),
             AmlStatus = t.Seller.AmlStatus.ToString(),
             LivenessStatus = t.Seller.LivenessStatus.ToString(),
@@ -526,8 +719,12 @@ public class AdminController(AppDbContext db, TransactionService txService, Smil
 
     private static object MapUser(User u) => new
     {
-        u.Id, u.FullName, u.Email, u.Phone,
-        u.IsAdmin, u.IsSuspended,
+        u.Id,
+        u.FullName,
+        u.Email,
+        u.Phone,
+        u.IsAdmin,
+        u.IsSuspended,
         IdCheckStatus = u.IdCheckStatus.ToString(),
         AmlStatus = u.AmlStatus.ToString(),
         LivenessStatus = u.LivenessStatus.ToString(),

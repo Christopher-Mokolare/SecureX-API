@@ -265,8 +265,7 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
         return tx;
     }
 
-    // ── Dispute: buyer rejects within 24hr window ────────────────────────────
-
+    //  Dispute: buyer rejects within 24hr window
     public async Task<Transaction> RejectItemAsync(Guid txId, string reason, int expectedVersion)
     {
         var tx = await db.Transactions.FindAsync(txId)
@@ -291,7 +290,6 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
             logger.LogInformation("TriggerPayout: starting for {Ref} seller={SellerId} merchantRef={MerchantRef}",
                 tx.DealReference, tx.SellerId, merchantRef);
 
-            // Fire-and-forget runs after the HTTP request scope is disposed.
             // Create a fresh scope so we get a live DbContext.
             await using var scope = scopeFactory.CreateAsyncScope();
             var freshDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();

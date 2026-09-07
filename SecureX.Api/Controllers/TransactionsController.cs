@@ -10,360 +10,516 @@ namespace SecureX.Api.Controllers;
 
 [ApiController]
 [Route("api/transactions")]
-[Authorize]
-public class TransactionsController(TransactionService txService, AppDbContext db, OzowCollectionService collectionService, IConfiguration config) : ControllerBase
+public class TransactionsController(
+    AppDbContext db,
+    TransactionService txService,
+    ILogger<TransactionsController> logger) : ControllerBase
 {
     private string CallerEmail => User.FindFirstValue(ClaimTypes.Email) ?? "unknown";
-    // ── POST /api/transactions — submit deal form ────────────────────────────
-    [HttpPost]
-    public async Task<IActionResult> Create([FromBody] CreateTransactionRequest req)
-    {
-        if (req.ItemValue <= 0) return BadRequest(new ErrorResponse { Error = "Item value must be greater than 0" });
-        if (string.IsNullOrEmpty(req.BuyerEmail)) return BadRequest(new ErrorResponse { Error = "Buyer email is required" });
-        if (string.IsNullOrEmpty(req.SellerEmail)) return BadRequest(new ErrorResponse { Error = "Seller email is required" });
-        if (req.BuyerEmail == req.SellerEmail) return BadRequest(new ErrorResponse { Error = "Buyer and seller cannot be the same person" });
-        if (string.IsNullOrWhiteSpace(req.BuyerIdNumber)) return BadRequest(new ErrorResponse { Error = "Buyer ID number is required" });
 
-        try
+    // ── GET /api/transactions/{id} ────────────────────────────────────────────
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> GetTransaction(Guid id)
+    {
+        logger.LogInformation("=== GET TRANSACTION ===");
+        logger.LogInformation("TransactionId: {Id}", id);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
+        var tx = await db.Transactions
+            .Include(t => t.Buyer)
+            .Include(t => t.Seller)
+            .Include(t => t.AuditLogs)
+            .FirstOrDefaultAsync(t => t.Id == id);
+
+        if (tx is null)
         {
-            var tx = await txService.CreateAsync(req);
-            var response = Map(tx);
-            // Payment link is withheld until KYC clears via SmileID webhook.
-            // Frontend should poll GET /api/transactions/{id} and call POST /{id}/payment-link
-            // once buyer.IdCheckStatus == "Approved".
-            return Ok(response);
+            logger.LogWarning("Transaction not found: {Id}", id);
+            return NotFound(new { error = "Transaction not found" });
         }
-        catch (InvalidOperationException ex)
+
+        logger.LogInformation("Transaction found: {DealReference}, Status: {Status}", tx.DealReference, tx.Status);
+
+        // Check if user has access (buyer or seller)
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!string.IsNullOrEmpty(userIdClaim) && Guid.TryParse(userIdClaim, out var userId))
         {
-            return BadRequest(new ErrorResponse { Error = ex.Message });
+            if (tx.BuyerId != userId && tx.SellerId != userId && !User.IsInRole("Admin"))
+            {
+                logger.LogWarning("Unauthorized access to transaction {Id} by user {UserId}", id, userId);
+                return Forbid();
+            }
         }
+
+        var response = new
+        {
+            transaction = MapTransaction(tx),
+            auditLog = tx.AuditLogs.OrderBy(a => a.Timestamp).Select(a => new
+            {
+                a.Id,
+                PreviousStatus = a.PreviousStatus?.ToString(),
+                NewStatus = a.NewStatus.ToString(),
+                a.TriggerActor,
+                a.ActionDetails,
+                a.Timestamp,
+            })
+        };
+
+        logger.LogInformation("Transaction details returned for: {DealReference}", tx.DealReference);
+        return Ok(response);
     }
 
-    // ── GET /api/transactions/{id} ───────────────────────────────────────────
-    [HttpGet("{id:guid}")]
-    public async Task<IActionResult> Get(Guid id)
+    // ── POST /api/transactions ─────────────────────────────────────────────────
+    [HttpPost]
+    public async Task<IActionResult> CreateTransaction([FromBody] CreateTransactionRequest req)
     {
+        logger.LogInformation("=== CREATE TRANSACTION ===");
+        logger.LogInformation("Item: {Item}, Value: {Value}, ServiceType: {ServiceType}", 
+            req.ItemTitle, req.ItemValue, req.ServiceType);
+        logger.LogInformation("Buyer: {BuyerEmail}, Seller: {SellerEmail}", req.BuyerEmail, req.SellerEmail);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
+        // Create or get buyer
+        var buyer = await db.Users.FirstOrDefaultAsync(u => u.Email == req.BuyerEmail.ToLowerInvariant());
+        if (buyer == null)
+        {
+            buyer = new User
+            {
+                FullName = req.BuyerFullName,
+                Email = req.BuyerEmail.ToLowerInvariant(),
+                Phone = req.BuyerPhone,
+                IdNumber = req.BuyerIdNumber,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            db.Users.Add(buyer);
+            logger.LogInformation("Created new buyer: {Email}", buyer.Email);
+        }
+
+        // Create or get seller
+        var seller = await db.Users.FirstOrDefaultAsync(u => u.Email == req.SellerEmail.ToLowerInvariant());
+        if (seller == null)
+        {
+            seller = new User
+            {
+                FullName = req.SellerFullName,
+                Email = req.SellerEmail.ToLowerInvariant(),
+                Phone = req.SellerPhone,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            db.Users.Add(seller);
+            logger.LogInformation("Created new seller: {Email}", seller.Email);
+        }
+
+        // Calculate fees
+        var platformFee = req.ItemValue * 0.05m; // 5% platform fee
+        decimal buyerFee, sellerFee;
+
+        switch (req.FeePayer)
+        {
+            case FeePayer.Buyer:
+                buyerFee = platformFee;
+                sellerFee = 0;
+                break;
+            case FeePayer.Seller:
+                buyerFee = 0;
+                sellerFee = platformFee;
+                break;
+            case FeePayer.Split:
+            default:
+                buyerFee = platformFee / 2;
+                sellerFee = platformFee / 2;
+                break;
+        }
+
+        var transaction = new Transaction
+        {
+            BuyerId = buyer.Id,
+            SellerId = seller.Id,
+            ItemTitle = req.ItemTitle,
+            ItemDescription = req.ItemDescription,
+            SellerLocation = req.SellerLocation,
+            ItemValue = req.ItemValue,
+            PlatformFee = platformFee,
+            BuyerFee = buyerFee,
+            SellerFee = sellerFee,
+            TotalCheckoutAmount = req.ItemValue + buyerFee,
+            ServiceType = req.ServiceType,
+            Status = TransactionStatus.PaymentPending,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        db.Transactions.Add(transaction);
+
+        // Add audit log
+        db.AuditLogs.Add(new AuditLog
+        {
+            TransactionId = transaction.Id,
+            PreviousStatus = null,
+            NewStatus = TransactionStatus.PaymentPending,
+            TriggerActor = CallerEmail,
+            ActionDetails = $"Transaction created by {CallerEmail}",
+            Timestamp = DateTime.UtcNow
+        });
+
+        await db.SaveChangesAsync();
+
+        logger.LogInformation("Transaction created: {DealReference}, Id: {Id}", transaction.DealReference, transaction.Id);
+
+        return Ok(new
+        {
+            transactionId = transaction.Id,
+            dealReference = transaction.DealReference,
+            status = transaction.Status.ToString(),
+            redirectUrl = $"/transaction/{transaction.Id}"
+        });
+    }
+
+    // ── POST /api/transactions/{id}/accept ────────────────────────────────────
+    [HttpPost("{id:guid}/accept")]
+    [Authorize]
+    public async Task<IActionResult> AcceptItem(Guid id)
+    {
+        logger.LogInformation("=== ACCEPT ITEM ===");
+        logger.LogInformation("TransactionId: {Id}", id);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            logger.LogWarning("Unauthorized: No valid user ID in token");
+            return Unauthorized(new { error = "Invalid user" });
+        }
+
         var tx = await db.Transactions
             .Include(t => t.Buyer)
             .Include(t => t.Seller)
             .FirstOrDefaultAsync(t => t.Id == id);
-        return tx is null ? NotFound() : Ok(Map(tx));
-    }
 
-    // ── GET /api/transactions/ref/{dealReference} ────────────────────────────
-    [HttpGet("ref/{dealReference}")]
-    public async Task<IActionResult> GetByRef(string dealReference)
-    {
-        var tx = await db.Transactions
-            .Include(t => t.Buyer)
-            .Include(t => t.Seller)
-            .FirstOrDefaultAsync(t => t.DealReference == dealReference);
-        return tx is null ? NotFound() : Ok(Map(tx));
-    }
-
-    // ── POST /api/transactions/{id}/start-logistics ─────────────────────────
-    [HttpPost("{id:guid}/start-logistics")]
-    public async Task<IActionResult> StartLogistics(Guid id, [FromBody] AdvanceStateRequest req)
-    {
-        try
+        if (tx is null)
         {
-            var tx = await txService.AdvanceStateAsync(id,
-                TransactionStatus.FundsSecured, TransactionStatus.LogisticsPending,
-                CallerEmail, "Seller confirmed delivery arranged — logistics in progress", req.ExpectedVersion);
-            return Ok(Map(tx));
+            logger.LogWarning("Transaction not found: {Id}", id);
+            return NotFound(new { error = "Transaction not found" });
         }
-        catch (DbUpdateConcurrencyException) { return Conflict(new ErrorResponse { Error = "Transaction was modified concurrently. Refresh and retry." }); }
-        catch (KeyNotFoundException) { return NotFound(); }
-        catch (InvalidOperationException ex) { return BadRequest(new ErrorResponse { Error = ex.Message }); }
-    }
 
-    // ── POST /api/transactions/{id}/mark-delivered ───────────────────────────
-    [HttpPost("{id:guid}/mark-delivered")]
-    public async Task<IActionResult> MarkDelivered(Guid id, [FromBody] AdvanceStateRequest req)
-    {
-        try
+        if (tx.BuyerId != userId)
         {
-            var tx = await txService.AdvanceStateAsync(id,
-                TransactionStatus.LogisticsPending, TransactionStatus.ItemDelivered,
-                CallerEmail, "Item marked as delivered — 24hr inspection window started", req.ExpectedVersion);
-            return Ok(Map(tx));
+            logger.LogWarning("User {UserId} is not the buyer for transaction {Id}", userId, id);
+            return Forbid();
         }
-        catch (DbUpdateConcurrencyException) { return Conflict(new ErrorResponse { Error = "Transaction was modified concurrently. Refresh and retry." }); }
-        catch (KeyNotFoundException) { return NotFound(); }
-        catch (InvalidOperationException ex) { return BadRequest(new ErrorResponse { Error = ex.Message }); }
-    }
 
-    // ── POST /api/transactions/{id}/accept — buyer accepts item ─────────────
-    [HttpPost("{id:guid}/accept")]
-    public async Task<IActionResult> Accept(Guid id, [FromBody] AdvanceStateRequest req)
-    {
-        try
+        if (tx.Status != TransactionStatus.ItemDelivered)
         {
-            var tx = await txService.CompleteAsync(id, CallerEmail, req.ExpectedVersion);
-            return Ok(Map(tx));
+            logger.LogWarning("Cannot accept item: Transaction status is {Status}, expected ItemDelivered", tx.Status);
+            return BadRequest(new { error = $"Transaction must be in 'ItemDelivered' status (current: {tx.Status})" });
         }
-        catch (DbUpdateConcurrencyException) { return Conflict(new ErrorResponse { Error = "Transaction was modified concurrently. Refresh and retry." }); }
-        catch (KeyNotFoundException) { return NotFound(); }
-        catch (InvalidOperationException ex) { return BadRequest(new ErrorResponse { Error = ex.Message }); }
-    }
-
-    // ── POST /api/transactions/{id}/reject — buyer rejects within 24hrs ─────
-    [HttpPost("{id:guid}/reject")]
-    public async Task<IActionResult> Reject(Guid id, [FromBody] RejectItemRequest req)
-    {
-        var tx = await db.Transactions.FindAsync(id);
-        if (tx is null) return NotFound();
 
         try
         {
-            var updated = await txService.RejectItemAsync(id, req.Reason, tx.Version);
-            return Ok(Map(updated));
+            var updated = await txService.AdvanceStateAsync(
+                id,
+                TransactionStatus.ItemDelivered,
+                TransactionStatus.Completed,
+                CallerEmail,
+                "Buyer accepted item",
+                tx.Version);
+
+            // Trigger payout
+            _ = txService.TriggerPayoutAsync(updated);
+
+            logger.LogInformation("Item accepted for transaction: {DealReference}", tx.DealReference);
+
+            return Ok(new
+            {
+                transactionId = updated.Id,
+                dealReference = updated.DealReference,
+                status = updated.Status.ToString(),
+                message = "Item accepted, payout initiated"
+            });
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(new ErrorResponse { Error = ex.Message });
+            logger.LogWarning("Failed to accept item: {Error}", ex.Message);
+            return BadRequest(new { error = ex.Message });
         }
     }
 
-    // ── POST /api/transactions/{id}/resolve-dispute — admin only ────────────
-    [HttpPost("{id:guid}/resolve-dispute")]
-    [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> ResolveDispute(Guid id, [FromBody] ResolveDisputeRequest req)
+    // ── POST /api/transactions/{id}/reject ────────────────────────────────────
+    [HttpPost("{id:guid}/reject")]
+    [Authorize]
+    public async Task<IActionResult> RejectItem(Guid id, [FromBody] RejectItemRequest req)
     {
-        if (req.Decision is not ("release-to-seller" or "refund-to-buyer"))
-            return BadRequest(new ErrorResponse { Error = "Decision must be 'release-to-seller' or 'refund-to-buyer'" });
+        logger.LogInformation("=== REJECT ITEM ===");
+        logger.LogInformation("TransactionId: {Id}, Reason: {Reason}", id, req.Reason);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            logger.LogWarning("Unauthorized: No valid user ID in token");
+            return Unauthorized(new { error = "Invalid user" });
+        }
+
+        var tx = await db.Transactions
+            .Include(t => t.Buyer)
+            .Include(t => t.Seller)
+            .FirstOrDefaultAsync(t => t.Id == id);
+
+        if (tx is null)
+        {
+            logger.LogWarning("Transaction not found: {Id}", id);
+            return NotFound(new { error = "Transaction not found" });
+        }
+
+        if (tx.BuyerId != userId)
+        {
+            logger.LogWarning("User {UserId} is not the buyer for transaction {Id}", userId, id);
+            return Forbid();
+        }
+
+        if (tx.Status != TransactionStatus.ItemDelivered)
+        {
+            logger.LogWarning("Cannot reject item: Transaction status is {Status}, expected ItemDelivered", tx.Status);
+            return BadRequest(new { error = $"Transaction must be in 'ItemDelivered' status (current: {tx.Status})" });
+        }
+
         try
         {
-            var tx = await txService.ResolveDisputeAsync(id, req.Decision, CallerEmail);
-            return Ok(Map(tx));
+            var updated = await txService.AdvanceStateAsync(
+                id,
+                TransactionStatus.ItemDelivered,
+                TransactionStatus.RequiresRefund,
+                CallerEmail,
+                $"Buyer rejected item: {req.Reason}",
+                tx.Version);
+
+            logger.LogInformation("Item rejected for transaction: {DealReference}, Reason: {Reason}", tx.DealReference, req.Reason);
+
+            return Ok(new
+            {
+                transactionId = updated.Id,
+                dealReference = updated.DealReference,
+                status = updated.Status.ToString(),
+                message = "Item rejected, awaiting dispute resolution"
+            });
         }
-        catch (KeyNotFoundException) { return NotFound(); }
-        catch (InvalidOperationException ex) { return BadRequest(new ErrorResponse { Error = ex.Message }); }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning("Failed to reject item: {Error}", ex.Message);
+            return BadRequest(new { error = ex.Message });
+        }
     }
 
-    // ── GET /api/transactions/{id}/audit ─────────────────────────────────────
-    [HttpGet("{id:guid}/audit")]
-    public async Task<IActionResult> Audit(Guid id, [FromQuery] int page = 1, [FromQuery] int size = 50)
+    // ── POST /api/transactions/{id}/confirm-delivery ──────────────────────────
+    [HttpPost("{id:guid}/confirm-delivery")]
+    [Authorize]
+    public async Task<IActionResult> ConfirmDelivery(Guid id)
     {
-        size = Math.Clamp(size, 1, 200);
+        logger.LogInformation("=== CONFIRM DELIVERY ===");
+        logger.LogInformation("TransactionId: {Id}", id);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            logger.LogWarning("Unauthorized: No valid user ID in token");
+            return Unauthorized(new { error = "Invalid user" });
+        }
+
+        var tx = await db.Transactions
+            .Include(t => t.Buyer)
+            .Include(t => t.Seller)
+            .FirstOrDefaultAsync(t => t.Id == id);
+
+        if (tx is null)
+        {
+            logger.LogWarning("Transaction not found: {Id}", id);
+            return NotFound(new { error = "Transaction not found" });
+        }
+
+        if (tx.SellerId != userId)
+        {
+            logger.LogWarning("User {UserId} is not the seller for transaction {Id}", userId, id);
+            return Forbid();
+        }
+
+        if (tx.Status != TransactionStatus.LogisticsPending)
+        {
+            logger.LogWarning("Cannot confirm delivery: Transaction status is {Status}, expected LogisticsPending", tx.Status);
+            return BadRequest(new { error = $"Transaction must be in 'LogisticsPending' status (current: {tx.Status})" });
+        }
+
+        try
+        {
+            var updated = await txService.AdvanceStateAsync(
+                id,
+                TransactionStatus.LogisticsPending,
+                TransactionStatus.ItemDelivered,
+                CallerEmail,
+                "Seller confirmed delivery",
+                tx.Version);
+
+            logger.LogInformation("Delivery confirmed for transaction: {DealReference}", tx.DealReference);
+
+            return Ok(new
+            {
+                transactionId = updated.Id,
+                dealReference = updated.DealReference,
+                status = updated.Status.ToString(),
+                inspectionWindowEndsAt = updated.InspectionWindowEndsAt,
+                message = "Delivery confirmed, inspection window started"
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning("Failed to confirm delivery: {Error}", ex.Message);
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    // ── POST /api/transactions/{id}/mark-as-shipped ───────────────────────────
+    [HttpPost("{id:guid}/mark-as-shipped")]
+    [Authorize]
+    public async Task<IActionResult> MarkAsShipped(Guid id)
+    {
+        logger.LogInformation("=== MARK AS SHIPPED ===");
+        logger.LogInformation("TransactionId: {Id}", id);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            logger.LogWarning("Unauthorized: No valid user ID in token");
+            return Unauthorized(new { error = "Invalid user" });
+        }
+
+        var tx = await db.Transactions
+            .Include(t => t.Buyer)
+            .Include(t => t.Seller)
+            .FirstOrDefaultAsync(t => t.Id == id);
+
+        if (tx is null)
+        {
+            logger.LogWarning("Transaction not found: {Id}", id);
+            return NotFound(new { error = "Transaction not found" });
+        }
+
+        if (tx.SellerId != userId)
+        {
+            logger.LogWarning("User {UserId} is not the seller for transaction {Id}", userId, id);
+            return Forbid();
+        }
+
+        if (tx.Status != TransactionStatus.FundsSecured)
+        {
+            logger.LogWarning("Cannot mark as shipped: Transaction status is {Status}, expected FundsSecured", tx.Status);
+            return BadRequest(new { error = $"Transaction must be in 'FundsSecured' status (current: {tx.Status})" });
+        }
+
+        try
+        {
+            var updated = await txService.AdvanceStateAsync(
+                id,
+                TransactionStatus.FundsSecured,
+                TransactionStatus.LogisticsPending,
+                CallerEmail,
+                "Seller marked item as shipped",
+                tx.Version);
+
+            logger.LogInformation("Item marked as shipped for transaction: {DealReference}", tx.DealReference);
+
+            return Ok(new
+            {
+                transactionId = updated.Id,
+                dealReference = updated.DealReference,
+                status = updated.Status.ToString(),
+                message = "Item marked as shipped"
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning("Failed to mark as shipped: {Error}", ex.Message);
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    // ── GET /api/transactions ──────────────────────────────────────────────────
+    [HttpGet]
+    [Authorize]
+    public async Task<IActionResult> GetUserTransactions(
+        [FromQuery] int page = 1,
+        [FromQuery] int size = 20)
+    {
+        logger.LogInformation("=== GET USER TRANSACTIONS ===");
+        logger.LogInformation("Page: {Page}, Size: {Size}", page, size);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            logger.LogWarning("Unauthorized: No valid user ID in token");
+            return Unauthorized(new { error = "Invalid user" });
+        }
+
+        size = Math.Clamp(size, 1, 100);
         page = Math.Max(1, page);
-        var logs = await db.AuditLogs
-            .Where(a => a.TransactionId == id)
-            .OrderBy(a => a.Timestamp)
+
+        var query = db.Transactions
+            .Include(t => t.Buyer)
+            .Include(t => t.Seller)
+            .Where(t => t.BuyerId == userId || t.SellerId == userId);
+
+        var total = await query.CountAsync();
+        var items = await query
+            .OrderByDescending(t => t.CreatedAt)
             .Skip((page - 1) * size)
             .Take(size)
             .ToListAsync();
-        return Ok(logs);
-    }
 
-    // ── POST /api/transactions/{id}/payment-link ────────────────────────────
-    [HttpPost("{id:guid}/payment-link")]
-    public async Task<IActionResult> PaymentLink(Guid id)
-    {
-        var tx = await db.Transactions
-            .Include(t => t.Buyer)
-            .Include(t => t.Seller)
-            .FirstOrDefaultAsync(t => t.Id == id);
-        if (tx is null) return NotFound();
-
-        if (tx.Status != TransactionStatus.PaymentPending)
-            return BadRequest(new ErrorResponse { Error = $"Expected PaymentPending, got {tx.Status}" });
-
-        if (tx.Buyer?.IdCheckStatus != KycStatus.Approved || tx.Buyer?.AmlStatus != KycStatus.Approved)
-            return BadRequest(new ErrorResponse { Error = "Buyer KYC has not been approved yet" });
-
-        var configuredReturnUrl = config["Ozow:ReturnUrl"] ?? "https://secureexchange.co.za/payment-return";
-        var redirectUrl = await collectionService.CreatePaymentAsync(
-            tx.DealReference,
-            tx.TotalCheckoutAmount,
-            configuredReturnUrl,
-            tx.Id.ToString(),
-            tx.SellerId.ToString(),
-            tx.Seller?.Email ?? "");
-        if (redirectUrl is null)
-            return StatusCode(502, new ErrorResponse { Error = "Failed to create Ozow payment" });
+        logger.LogInformation("GET USER TRANSACTIONS: Found {Total} total for user {UserId}", total, userId);
 
         return Ok(new
         {
-            txId = tx.Id,
-            dealReference = tx.DealReference,
-            totalAmount = tx.TotalCheckoutAmount,
-            sellerId = tx.SellerId,
-            sellerEmail = tx.Seller?.Email ?? "",
-            redirectUrl
+            total,
+            page,
+            size,
+            pages = (int)Math.Ceiling((double)total / size),
+            items = items.Select(MapTransaction)
         });
     }
 
-    // ── POST /api/transactions/{id}/retry-payout — admin only ───────────────
-    [HttpPost("{id:guid}/retry-payout")]
-    [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> RetryPayout(Guid id)
+    // ── Mappers ───────────────────────────────────────────────────────────────
+    private static object MapTransaction(Transaction t) => new
     {
-        var tx = await db.Transactions
-            .Include(t => t.Seller)
-            .FirstOrDefaultAsync(t => t.Id == id);
-        if (tx is null) return NotFound();
-        if (tx.Status != TransactionStatus.Completed)
-            return BadRequest(new ErrorResponse { Error = $"Transaction must be Completed to retry payout (current: {tx.Status})" });
-
-        // Resolve any stale pending payout records so the poller stops watching them
-        var stale = await db.PendingPayouts
-            .Where(p => p.DealReference == tx.DealReference && !p.Resolved)
-            .ToListAsync();
-        foreach (var p in stale) { p.Resolved = true; p.ResolvedAt = DateTime.UtcNow; }
-        await db.SaveChangesAsync();
-
-        // Ozow rejects duplicate merchantReference — append retry suffix with seconds to avoid
-        // collision when poller and retry endpoint fire within the same minute
-        var retryRef = $"{tx.DealReference}-R{DateTime.UtcNow:yyMMddHHmmss}";
-        await txService.TriggerPayoutAsync(tx, retryRef);
-        return Ok(new { dealReference = tx.DealReference, retryReference = retryRef, staleResolved = stale.Count, message = "Payout resubmitted" });
-    }
-
-    // ── POST /api/transactions/{id}/simulate-payment — admin only ───────────
-    [HttpPost("{id:guid}/simulate-payment")]
-    [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> SimulatePayment(Guid id)
-    {
-        var tx = await db.Transactions.FindAsync(id);
-        if (tx is null) return NotFound();
-
-        var advanced = await txService.HandlePaymentReceivedAsync(tx.DealReference);
-        if (!advanced)
-            return BadRequest(new ErrorResponse { Error = $"Transaction is not in PaymentPending status (current: {tx.Status})" });
-
-        var updated = await db.Transactions
-            .Include(t => t.Buyer).Include(t => t.Seller)
-            .FirstOrDefaultAsync(t => t.Id == id);
-        return Ok(Map(updated!));
-    }
-
-    // ── GET /api/transactions/fee-preview ────────────────────────────────────
-    [HttpGet("fee-preview")]
-    public IActionResult FeePreview([FromQuery] decimal itemValue, [FromQuery] ServiceType serviceType,
-        [FromQuery] FeePayer feePayer = FeePayer.Buyer)
-    {
-        if (itemValue <= 0) return BadRequest(new ErrorResponse { Error = "itemValue must be greater than 0" });
-        var fee = TransactionService.CalculateFee(itemValue, serviceType);
-        var (buyerFee, sellerFee) = TransactionService.SplitFee(fee, feePayer);
-        return Ok(new
-        {
-            itemValue,
-            platformFee = fee,
-            buyerFee,
-            sellerFee,
-            totalCheckoutAmount = itemValue + buyerFee,
-            sellerPayout = itemValue - sellerFee,
-        });
-    }
-
-    private static TransactionResponse Map(Transaction t) => new()
-    {
-        Id = t.Id,
-        DealReference = t.DealReference,
+        t.Id,
+        t.DealReference,
         Status = t.Status.ToString(),
-        ItemTitle = t.ItemTitle,
-        ItemDescription = t.ItemDescription,
-        SellerLocation = t.SellerLocation,
-        ItemValue = t.ItemValue,
-        PlatformFee = t.PlatformFee,
-        BuyerFee = t.BuyerFee,
-        SellerFee = t.SellerFee,
-        TotalCheckoutAmount = t.TotalCheckoutAmount,
+        t.ItemTitle,
+        t.ItemDescription,
+        t.SellerLocation,
+        t.ItemValue,
+        t.PlatformFee,
+        t.BuyerFee,
+        t.SellerFee,
+        t.TotalCheckoutAmount,
         ServiceType = t.ServiceType.ToString(),
-        Version = t.Version,
-        CreatedAt = t.CreatedAt,
-        InspectionWindowEndsAt = t.InspectionWindowEndsAt,
-        Buyer = t.Buyer is null ? null : MapUser(t.Buyer),
-        Seller = t.Seller is null ? null : MapUser(t.Seller),
-    };
-
-    // ── POST /api/transactions/{id}/start-buyer-kyc — removed: KYC now runs inline on deal creation ──
-
-    // ── POST /api/transactions/{id}/start-seller-kyc ─────────────────────────
-    [HttpPost("{id:guid}/start-seller-kyc")]
-    [Microsoft.AspNetCore.Authorization.AllowAnonymous]
-    public async Task<IActionResult> StartSellerKyc(Guid id)
-    {
-        var tx = await db.Transactions.Include(t => t.Seller).FirstOrDefaultAsync(t => t.Id == id);
-        if (tx is null) return NotFound();
-        if (tx.Seller is null) return BadRequest(new ErrorResponse { Error = "Seller not found" });
-
-        if (string.IsNullOrWhiteSpace(tx.Seller.IdNumber))
-            return BadRequest(new ErrorResponse { Error = "Seller ID number is required before verification" });
-
-        if (tx.Seller.IdCheckStatus == KycStatus.Approved &&
-            tx.Seller.AmlStatus == KycStatus.Approved &&
-            tx.Seller.LivenessStatus == KycStatus.Approved)
-            return Ok(new { status = "Approved" });
-
-        var token = await txService.CreateSellerLivenessTokenAsync(tx);
-        if (token is null)
-            return StatusCode(502, new ErrorResponse { Error = "Unable to start SmileID liveness verification" });
-
-        var baseUrl = config["SmileId:BaseUrl"] ?? "";
-        var isSandbox = baseUrl.Contains("testapi", StringComparison.OrdinalIgnoreCase) ||
-                        baseUrl.Contains("sandbox", StringComparison.OrdinalIgnoreCase);
-
-        return Ok(new
+        t.Version,
+        t.CreatedAt,
+        t.InspectionWindowEndsAt,
+        Buyer = t.Buyer is null ? null : new
         {
-            token,
-            product = "biometric_kyc",
-            environment = isSandbox ? "sandbox" : "production",
-            callbackUrl = config["SmileId:CallbackUrl"] ?? "",
-            partnerId = config["SmileId:PartnerId"] ?? "",
-            userId = tx.Seller.Id.ToString(),
-            userDetails = new { given_names = GetGivenNames(tx.Seller.FullName), last_name = GetLastName(tx.Seller.FullName), email = tx.Seller.Email, phone_number = NormalizePhone(tx.Seller.Phone) },
-            idInfo = new { ZA = new { NATIONAL_ID = new { id_number = isSandbox ? "0000000000000" : tx.Seller.IdNumber } } },
-            partnerParams = new
-            {
-                internal_reference = tx.Id.ToString(),
-                deal_reference = tx.DealReference,
-                verification_type = "seller_liveness"
-            }
-        });
-    }
-
-    private static UserResponse MapUser(User u) => new()
-    {
-        Id = u.Id,
-        FullName = u.FullName,
-        Email = u.Email,
-        Phone = u.Phone,
-        BankVerificationStatus = u.BankVerificationStatus.ToString(),
-        IdCheckStatus = u.IdCheckStatus.ToString(),
-        AmlStatus = u.AmlStatus.ToString(),
-        LivenessStatus = u.LivenessStatus.ToString(),
+            t.Buyer.Id,
+            t.Buyer.FullName,
+            t.Buyer.Email,
+            t.Buyer.Phone
+        },
+        Seller = t.Seller is null ? null : new
+        {
+            t.Seller.Id,
+            t.Seller.FullName,
+            t.Seller.Email,
+            t.Seller.Phone
+        }
     };
-
-    private static string GetGivenNames(string fullName)
-    {
-        var parts = fullName.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        return parts.Length > 1 ? string.Join(' ', parts[..^1]) : fullName.Trim();
-    }
-
-    private static string GetLastName(string fullName)
-    {
-        var parts = fullName.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        return parts.Length > 1 ? parts[^1] : fullName.Trim();
-    }
-
-    private static string NormalizePhone(string? phone)
-    {
-        if (string.IsNullOrWhiteSpace(phone)) return "";
-
-        var clean = new string(phone.Where(c => char.IsDigit(c) || c == '+').ToArray());
-        clean = clean.Replace("+", string.Empty);
-
-        if (clean.StartsWith("0") && clean.Length == 10)
-            return "+27" + clean[1..];
-
-        if (clean.StartsWith("27") && clean.Length == 11)
-            return "+" + clean;
-
-        if (clean.Length > 0)
-            return "+" + clean;
-
-        return "";
-    }
 }
