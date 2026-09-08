@@ -111,26 +111,9 @@ public class TransactionsController(
             logger.LogInformation("Created new seller: {Email}", seller.Email);
         }
 
-        // Calculate fees
-        var platformFee = req.ItemValue * 0.05m; // 5% platform fee
-        decimal buyerFee, sellerFee;
-
-        switch (req.FeePayer)
-        {
-            case FeePayer.Buyer:
-                buyerFee = platformFee;
-                sellerFee = 0;
-                break;
-            case FeePayer.Seller:
-                buyerFee = 0;
-                sellerFee = platformFee;
-                break;
-            case FeePayer.Split:
-            default:
-                buyerFee = platformFee / 2;
-                sellerFee = platformFee / 2;
-                break;
-        }
+        // Calculate fees using TransactionService
+        var fee = TransactionService.CalculateFee(req.ItemValue, req.ServiceType);
+        var (buyerFee, sellerFee) = TransactionService.SplitFee(fee, req.FeePayer);
 
         var transaction = new Transaction
         {
@@ -140,7 +123,7 @@ public class TransactionsController(
             ItemDescription = req.ItemDescription,
             SellerLocation = req.SellerLocation,
             ItemValue = req.ItemValue,
-            PlatformFee = platformFee,
+            PlatformFee = fee,
             BuyerFee = buyerFee,
             SellerFee = sellerFee,
             TotalCheckoutAmount = req.ItemValue + buyerFee,

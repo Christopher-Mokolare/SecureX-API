@@ -4,8 +4,61 @@ using SecureX.Api.Models;
 
 namespace SecureX.Api.Services;
 
-public class TransactionService(AppDbContext db, DealReferenceService refService, OzowPayoutService payoutService, SmileIdService smileId, IConfiguration config, ILogger<TransactionService> logger, IServiceScopeFactory scopeFactory)
+public class TransactionService(
+    AppDbContext db,
+    DealReferenceService refService,
+    OzowPayoutService payoutService,
+    SmileIdService smileId,
+    IConfiguration config,
+    ILogger<TransactionService> logger,
+    IServiceScopeFactory scopeFactory)
 {
+    // ── Fee structure constants ──────────────────────────────────────────────
+    // Transaction < R5,000  → R150
+    // R5,000 ≤ Transaction < R8,000 → R200  
+    // Transaction ≥ R8,000 → 2.5% of transaction value
+    
+    private const decimal Tier1Threshold = 5000m;
+    private const decimal Tier2Threshold = 8000m;
+    private const decimal Tier1Fee = 150m;
+    private const decimal Tier2Fee = 200m;
+    private const decimal PercentageRate = 0.025m;
+
+    public static decimal CalculateStandardFee(decimal itemValue)
+    {
+        if (itemValue <= 0) return 0m;
+        
+        if (itemValue < Tier1Threshold)
+            return Tier1Fee;
+        else if (itemValue >= Tier1Threshold && itemValue < Tier2Threshold)
+            return Tier2Fee;
+        else
+            return itemValue * PercentageRate;
+    }
+
+    public static decimal CalculateVerifiedExpressFee(decimal itemValue)
+    {
+        // Verified Express: 1.5% + R250, but never less than the standard fee
+        var standardFee = CalculateStandardFee(itemValue);
+        var expressFee = (itemValue * 0.015m) + 250m;
+        return Math.Max(standardFee, expressFee);
+    }
+
+    public static decimal CalculateFee(decimal itemValue, ServiceType type) => type switch
+    {
+        ServiceType.Standard => CalculateStandardFee(itemValue),
+        ServiceType.VerifiedExpress => CalculateVerifiedExpressFee(itemValue),
+        _ => throw new ArgumentOutOfRangeException(nameof(type))
+    };
+
+    public static (decimal buyerFee, decimal sellerFee) SplitFee(decimal fee, FeePayer payer) => payer switch
+    {
+        FeePayer.Buyer => (fee, 0m),
+        FeePayer.Seller => (0m, fee),
+        FeePayer.Split => (Math.Round(fee / 2, 2), Math.Round(fee / 2, 2)),
+        _ => (fee, 0m)
+    };
+
     public async Task<string?> CreateSellerLivenessTokenAsync(Transaction tx)
     {
         if (tx.Seller is null)
@@ -31,25 +84,6 @@ public class TransactionService(AppDbContext db, DealReferenceService refService
 
         return await smileId.CreateBiometricKycTokenAsync();
     }
-
-    // ── Fee calculation (matches frontend js/script.js) ──────────────────────
-    // Standard:         max(value * 2.5%, R150)
-    // VerifiedExpress:  max(value * 1.5%, R150) + R250
-
-    public static decimal CalculateFee(decimal itemValue, ServiceType type) => type switch
-    {
-        ServiceType.Standard => Math.Max(itemValue * 0.025m, 150m),
-        ServiceType.VerifiedExpress => Math.Max(itemValue * 0.015m, 150m) + 250m,
-        _ => throw new ArgumentOutOfRangeException(nameof(type))
-    };
-
-    public static (decimal buyerFee, decimal sellerFee) SplitFee(decimal fee, FeePayer payer) => payer switch
-    {
-        FeePayer.Buyer => (fee, 0m),
-        FeePayer.Seller => (0m, fee),
-        FeePayer.Split => (Math.Round(fee / 2, 2), Math.Round(fee / 2, 2)),
-        _ => (fee, 0m)
-    };
 
     // ── Step 3: Create transaction ───────────────────────────────────────────
 

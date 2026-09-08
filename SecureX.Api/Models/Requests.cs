@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using System.ComponentModel.DataAnnotations;
 
 namespace SecureX.Api.Models;
 
@@ -82,7 +83,10 @@ public class CreateTransactionRequest
     public string SellerPhone { get; set; } = "";
     public string ItemTitle { get; set; } = "";
     public string ItemDescription { get; set; } = "";
+    
+    [Range(1, 100000, ErrorMessage = "Transaction value must be between R1.00 and R100,000.00")]
     public decimal ItemValue { get; set; }
+    
     public string SellerLocation { get; set; } = "";
     public ServiceType ServiceType { get; set; }
     public FeePayer FeePayer { get; set; } = FeePayer.Buyer;
