@@ -13,7 +13,6 @@ namespace SecureX.Api.Controllers;
 public class TransactionsController(
     AppDbContext db,
     TransactionService txService,
-    DealReferenceService refService,
     ILogger<TransactionsController> logger) : ControllerBase
 {
     private string CallerEmail => User.FindFirstValue(ClaimTypes.Email) ?? "unknown";
@@ -74,91 +73,48 @@ public class TransactionsController(
     public async Task<IActionResult> CreateTransaction([FromBody] CreateTransactionRequest req)
     {
         logger.LogInformation("=== CREATE TRANSACTION ===");
-        logger.LogInformation("Item: {Item}, Value: {Value}, ServiceType: {ServiceType}", 
-            req.ItemTitle, req.ItemValue, req.ServiceType);
-        logger.LogInformation("Buyer: {BuyerEmail}, Seller: {SellerEmail}", req.BuyerEmail, req.SellerEmail);
+        logger.LogInformation(
+            "Item: {Item}, Value: {Value}, ServiceType: {ServiceType}",
+            req.ItemTitle,
+            req.ItemValue,
+            req.ServiceType);
+
+        logger.LogInformation(
+            "Buyer: {BuyerEmail}, Seller: {SellerEmail}",
+            req.BuyerEmail,
+            req.SellerEmail);
+
         logger.LogInformation("Caller: {Caller}", CallerEmail);
 
-        // Create or get buyer
-        var buyer = await db.Users.FirstOrDefaultAsync(u => u.Email == req.BuyerEmail.ToLowerInvariant());
-        if (buyer == null)
+        try
         {
-            buyer = new User
+            var transaction = await txService.CreateAsync(req);
+
+            logger.LogInformation(
+                "Transaction created: {DealReference}, Id: {Id}",
+                transaction.DealReference,
+                transaction.Id);
+
+            return Ok(new
             {
-                FullName = req.BuyerFullName,
-                Email = req.BuyerEmail.ToLowerInvariant(),
-                Phone = req.BuyerPhone,
-                IdNumber = req.BuyerIdNumber,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
-            db.Users.Add(buyer);
-            logger.LogInformation("Created new buyer: {Email}", buyer.Email);
+                transactionId = transaction.Id,
+                dealReference = transaction.DealReference,
+                status = transaction.Status.ToString(),
+                redirectUrl = $"/transaction/{transaction.Id}"
+            });
         }
-
-        // Create or get seller
-        var seller = await db.Users.FirstOrDefaultAsync(u => u.Email == req.SellerEmail.ToLowerInvariant());
-        if (seller == null)
+        catch (Exception ex)
         {
-            seller = new User
+            logger.LogError(
+                ex,
+                "Failed to create transaction for buyer {BuyerEmail}",
+                req.BuyerEmail);
+
+            return BadRequest(new
             {
-                FullName = req.SellerFullName,
-                Email = req.SellerEmail.ToLowerInvariant(),
-                Phone = req.SellerPhone,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
-            db.Users.Add(seller);
-            logger.LogInformation("Created new seller: {Email}", seller.Email);
+                error = ex.Message
+            });
         }
-
-        // Calculate fees using TransactionService
-        var fee = TransactionService.CalculateFee(req.ItemValue, req.ServiceType);
-        var (buyerFee, sellerFee) = TransactionService.SplitFee(fee, req.FeePayer);
-
-        var transaction = new Transaction
-        {
-            DealReference = await refService.NextAsync(),
-            BuyerId = buyer.Id,
-            SellerId = seller.Id,
-            ItemTitle = req.ItemTitle,
-            ItemDescription = req.ItemDescription,
-            SellerLocation = req.SellerLocation,
-            ItemValue = req.ItemValue,
-            PlatformFee = fee,
-            BuyerFee = buyerFee,
-            SellerFee = sellerFee,
-            TotalCheckoutAmount = req.ItemValue + buyerFee,
-            ServiceType = req.ServiceType,
-            Status = TransactionStatus.PaymentPending,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
-
-        db.Transactions.Add(transaction);
-
-        // Add audit log
-        db.AuditLogs.Add(new AuditLog
-        {
-            TransactionId = transaction.Id,
-            PreviousStatus = null,
-            NewStatus = TransactionStatus.PaymentPending,
-            TriggerActor = CallerEmail,
-            ActionDetails = $"Transaction created by {CallerEmail}",
-            Timestamp = DateTime.UtcNow
-        });
-
-        await db.SaveChangesAsync();
-
-        logger.LogInformation("Transaction created: {DealReference}, Id: {Id}", transaction.DealReference, transaction.Id);
-
-        return Ok(new
-        {
-            transactionId = transaction.Id,
-            dealReference = transaction.DealReference,
-            status = transaction.Status.ToString(),
-            redirectUrl = $"/transaction/{transaction.Id}"
-        });
     }
 
     // ── POST /api/transactions/{id}/accept ────────────────────────────────────
