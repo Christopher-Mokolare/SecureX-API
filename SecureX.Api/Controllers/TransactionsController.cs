@@ -13,6 +13,7 @@ namespace SecureX.Api.Controllers;
 public class TransactionsController(
     AppDbContext db,
     TransactionService txService,
+    DealReferenceService refService,
     ILogger<TransactionsController> logger) : ControllerBase
 {
     private string CallerEmail => User.FindFirstValue(ClaimTypes.Email) ?? "unknown";
@@ -117,6 +118,7 @@ public class TransactionsController(
 
         var transaction = new Transaction
         {
+            DealReference = await refService.NextAsync(),
             BuyerId = buyer.Id,
             SellerId = seller.Id,
             ItemTitle = req.ItemTitle,
