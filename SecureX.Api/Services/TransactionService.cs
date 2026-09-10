@@ -111,8 +111,18 @@ public class TransactionService(
 
         await db.SaveChangesAsync(); // commit users first so FK is satisfied
 
-        var fee = CalculateFee(req.ItemValue, req.ServiceType);
-        var (buyerFee, sellerFee) = SplitFee(fee, req.FeePayer);
+        // ─────────────────────────────────────────────────────────────────
+        // TESTING MODE: Fees are forced to R0 in production while we finalize
+        // the fee structure. To re-enable real fees, remove the env var
+        //   Features__FreeFees=true
+        // or set it to "false".
+        // ─────────────────────────────────────────────────────────────────
+        var isTestingMode = string.Equals(
+            config["Features:FreeFees"], "true", StringComparison.OrdinalIgnoreCase);
+        var fee = isTestingMode ? 0m : CalculateFee(req.ItemValue, req.ServiceType);
+        var (buyerFee, sellerFee) = isTestingMode
+            ? (0m, 0m)
+            : SplitFee(fee, req.FeePayer);
 
         var tx = new Transaction
         {
