@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SecureX.Api.Data;
@@ -147,6 +148,20 @@ public class TransactionsController(
         try
         {
             var transaction = await txService.CreateAsync(req);
+
+            // Fire-and-forget KYC/AML submission
+            var buyerIdNumber = req.BuyerIdNumber;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await txService.SubmitKycAndAmlAsync(transaction.Id, buyerIdNumber);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Background KYC/AML submission failed for {DealReference}", transaction.DealReference);
+                }
+            });
 
             logger.LogInformation(
                 "Transaction created: {DealReference}, Id: {Id}",

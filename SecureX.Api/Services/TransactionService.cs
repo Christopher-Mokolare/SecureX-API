@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using SecureX.Api.Data;
 using SecureX.Api.Models;
 
@@ -145,58 +146,93 @@ public class TransactionService(
         AppendAudit(tx, null, TransactionStatus.PaymentPending, "system", "Transaction created — awaiting buyer KYC");
         await db.SaveChangesAsync();
 
-        // Submit KYC job — result arrives asynchronously via SmileID webhook
-        var smileBaseUrl = config["SmileId:BaseUrl"] ?? "";
-        var isSandbox = smileBaseUrl.Contains("testapi", StringComparison.OrdinalIgnoreCase) ||
-                        smileBaseUrl.Contains("sandbox", StringComparison.OrdinalIgnoreCase);
-        var kycIdNumber = isSandbox ? "0000000000000" : req.BuyerIdNumber;
-        var jobId = await smileId.SubmitEnhancedKycAsync(
-            req.BuyerFullName, kycIdNumber, req.BuyerEmail, req.BuyerPhone, tx.DealReference);
+        // NOTE: KYC and AML submissions are now triggered asynchronously
+        // by the controller AFTER this method returns. See SubmitKycAndAmlAsync.
 
-        if (jobId is not null)
-        {
-            buyer.SmileIdJobId = jobId;
-            buyer.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
-            logger.LogInformation("SmileID KYC job submitted: {JobId} for deal {Ref}", jobId, tx.DealReference);
-        }
-        else
-        {
-            logger.LogWarning("SmileID KYC job submission failed for deal {Ref} — KYC status remains Pending", tx.DealReference);
-        }
-
-        // AML is a separate watchlist screening and must not be inferred from ID verification.
-        // Small delay to avoid sandbox rate-limiting when KYC and AML fire back-to-back.
-        await Task.Delay(3000);
-        var aml = await smileId.SubmitAmlAsync(req.BuyerFullName, tx.DealReference, userId: buyer.Id.ToString());
-        if (aml is null) // retry once on transient 401/429
-        {
-            await Task.Delay(5000);
-            aml = await smileId.SubmitAmlAsync(req.BuyerFullName, tx.DealReference, userId: buyer.Id.ToString());
-        }
-        if (aml is not null)
-        {
-            buyer.SmileIdAmlJobId = aml.JobId;
-            buyer.AmlStatus = aml.ResultCode switch
-            {
-                "1031" => KycStatus.Approved, // Not found on list
-                "1030" => KycStatus.Failed,   // Found on list
-                _ => KycStatus.Pending
-            };
-            buyer.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
-        }
-        else
-        {
-            logger.LogWarning("SmileID AML submission failed for deal {Ref} — AML status remains Pending", tx.DealReference);
-        }
-
-        tx.Buyer = buyer;
-        tx.Seller = seller;
         return tx;
     }
 
-    // ── Generic state advance with row lock + optimistic concurrency ─────────
+    /// <summary>
+    /// Runs SmileID KYC and AML submissions in the background.
+    /// Called from the controller after returning the transaction to the client.
+    /// </summary>
+    public async Task SubmitKycAndAmlAsync(Guid transactionId, string buyerIdNumber)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var scopedDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var scopedSmileId = scope.ServiceProvider.GetRequiredService<SmileIdService>();
+        var scopedLogger = scope.ServiceProvider.GetRequiredService<ILogger<TransactionService>>();
+
+        try
+        {
+            var tx = await scopedDb.Transactions
+                .Include(t => t.Buyer)
+                .FirstOrDefaultAsync(t => t.Id == transactionId);
+
+            if (tx?.Buyer is null)
+            {
+                scopedLogger.LogWarning("SubmitKycAndAmlAsync: transaction or buyer not found for {Id}", transactionId);
+                return;
+            }
+
+            var buyer = tx.Buyer;
+
+            // Submit KYC
+            var smileBaseUrl = config["SmileId:BaseUrl"] ?? "";
+            var isSandbox = smileBaseUrl.Contains("testapi", StringComparison.OrdinalIgnoreCase) ||
+                            smileBaseUrl.Contains("sandbox", StringComparison.OrdinalIgnoreCase);
+            var kycIdNumber = isSandbox ? "0000000000000" : buyerIdNumber;
+
+            var jobId = await scopedSmileId.SubmitEnhancedKycAsync(
+                buyer.FullName, kycIdNumber, buyer.Email, buyer.Phone, tx.DealReference);
+
+            if (jobId is not null)
+            {
+                buyer.SmileIdJobId = jobId;
+                buyer.UpdatedAt = DateTime.UtcNow;
+                await scopedDb.SaveChangesAsync();
+                scopedLogger.LogInformation("SmileID KYC job submitted: {JobId} for deal {Ref}", jobId, tx.DealReference);
+            }
+            else
+            {
+                scopedLogger.LogWarning("SmileID KYC job submission failed for deal {Ref}", tx.DealReference);
+            }
+
+            // Small delay to avoid sandbox rate-limiting
+            await Task.Delay(3000);
+
+            // Submit AML
+            var aml = await scopedSmileId.SubmitAmlAsync(buyer.FullName, tx.DealReference, userId: buyer.Id.ToString());
+            if (aml is null)
+            {
+                await Task.Delay(5000);
+                aml = await scopedSmileId.SubmitAmlAsync(buyer.FullName, tx.DealReference, userId: buyer.Id.ToString());
+            }
+
+            if (aml is not null)
+            {
+                buyer.SmileIdAmlJobId = aml.JobId;
+                buyer.AmlStatus = aml.ResultCode switch
+                {
+                    "1031" => KycStatus.Approved,
+                    "1030" => KycStatus.Failed,
+                    _ => KycStatus.Pending
+                };
+                buyer.UpdatedAt = DateTime.UtcNow;
+                await scopedDb.SaveChangesAsync();
+                scopedLogger.LogInformation("SmileID AML submitted: {JobId} for deal {Ref} result={Result}",
+                    aml.JobId, tx.DealReference, aml.ResultCode);
+            }
+            else
+            {
+                scopedLogger.LogWarning("SmileID AML submission failed for deal {Ref}", tx.DealReference);
+            }
+        }
+        catch (Exception ex)
+        {
+            scopedLogger.LogError(ex, "SubmitKycAndAmlAsync failed for transaction {Id}", transactionId);
+        }
+    }
 
     public async Task<Transaction> AdvanceStateAsync(Guid txId, TransactionStatus expected,
         TransactionStatus next, string actor, string details, int expectedVersion)
