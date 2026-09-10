@@ -38,7 +38,22 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
         }
 
         var status = GetString(payload, "status");
-        var jobId = Request.Headers["Job-ID"].FirstOrDefault() ?? GetString(payload, "job_id");
+
+        // Try to find jobId in several places:
+        // 1. Job-ID header (SmileID sends this)
+        // 2. payload.job_id (top-level)
+        // 3. payload.partner_params.job_id (nested)
+        var jobId = Request.Headers["Job-ID"].FirstOrDefault();
+
+        if (string.IsNullOrWhiteSpace(jobId))
+            jobId = GetString(payload, "job_id");
+
+        if (string.IsNullOrWhiteSpace(jobId))
+        {
+            var ppForJobId = GetProperty(payload, "partner_params") ?? GetProperty(payload, "PartnerParams");
+            if (ppForJobId.HasValue)
+                jobId = GetString(ppForJobId.Value, "job_id");
+        }
 
         // Correlate by SmileID's Job-ID header, with partner metadata as a fallback.
         string? dealReference = null;

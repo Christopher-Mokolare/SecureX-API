@@ -72,6 +72,11 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
                     sellerTransaction.Seller.IdCheckStatus = KycStatus.Approved;
                     sellerTransaction.Seller.LivenessStatus = KycStatus.Approved;
                     break;
+                case "attention":
+                    sellerTransaction.Seller.IdCheckStatus = KycStatus.Approved;
+                    sellerTransaction.Seller.LivenessStatus = KycStatus.Approved;
+                    logger.LogInformation("SmileID seller liveness attention (approved) for deal {Ref}", dealReference?.Replace("\n", "").Replace("\r", ""));
+                    break;
                 case "block":
                     sellerTransaction.Seller.IdCheckStatus = KycStatus.Failed;
                     sellerTransaction.Seller.LivenessStatus = KycStatus.Failed;
@@ -138,6 +143,11 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
             case "clear":
                 buyer.IdCheckStatus = KycStatus.Approved;
                 logger.LogInformation("SmileID KYC clear for deal {Ref} buyer {BuyerId}", dealReference?.Replace("\n", "").Replace("\r", ""), buyer.Id);
+                break;
+
+            case "attention":
+                buyer.IdCheckStatus = KycStatus.Approved;
+                logger.LogInformation("SmileID KYC attention (approved with flags) for deal {Ref} buyer {BuyerId}", dealReference?.Replace("\n", "").Replace("\r", ""), buyer.Id);
                 break;
 
             case "block":
