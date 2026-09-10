@@ -15,6 +15,7 @@ public class TransactionsController(
     AppDbContext db,
     TransactionService txService,
     OzowCollectionService ozowCollection,
+    IConfiguration config,
     ILogger<TransactionsController> logger) : ControllerBase
 {
     private string CallerEmail => User.FindFirstValue(ClaimTypes.Email) ?? "unknown";
@@ -124,6 +125,71 @@ public class TransactionsController(
             sellerId = tx.SellerId,
             sellerEmail = tx.Seller?.Email ?? "",
             redirectUrl
+        });
+    }
+
+    // ── POST /api/transactions/{id}/start-seller-kyc ─────────────────────────
+    [HttpPost("{id:guid}/start-seller-kyc")]
+    public async Task<IActionResult> StartSellerKyc(Guid id)
+    {
+        logger.LogInformation("=== START SELLER KYC ===");
+        logger.LogInformation("TransactionId: {Id}", id);
+
+        var tx = await db.Transactions
+            .Include(t => t.Seller)
+            .FirstOrDefaultAsync(t => t.Id == id);
+
+        if (tx?.Seller is null)
+        {
+            logger.LogWarning("Seller KYC: transaction or seller not found for {Id}", id);
+            return NotFound(new { error = "Transaction or seller not found" });
+        }
+
+        var token = await txService.CreateSellerLivenessTokenAsync(tx);
+
+        if (string.IsNullOrEmpty(token))
+        {
+            logger.LogError("Seller KYC token generation failed for {Ref}", tx.DealReference);
+            return StatusCode(500, new { error = "Could not create verification session" });
+        }
+
+        var isSandbox = (config["SmileId:BaseUrl"] ?? "").Contains("testapi", StringComparison.OrdinalIgnoreCase);
+        var sellerNameParts = tx.Seller.FullName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var givenNames = sellerNameParts.Length > 1
+            ? string.Join(' ', sellerNameParts[..^1])
+            : tx.Seller.FullName;
+        var lastName = sellerNameParts.Length > 1 ? sellerNameParts[^1] : "";
+
+        return Ok(new
+        {
+            token = token,
+            product = "biometric_kyc",
+            environment = isSandbox ? "sandbox" : "production",
+            partnerId = config["SmileId:PartnerId"] ?? "8811",
+            callbackUrl = config["SmileId:CallbackUrl"] ?? "",
+            userDetails = new
+            {
+                given_names = givenNames,
+                last_name = lastName,
+                email = tx.Seller.Email,
+                phone_number = tx.Seller.Phone,
+            },
+            idInfo = new Dictionary<string, object>
+            {
+                ["ZA"] = new Dictionary<string, object>
+                {
+                    ["NATIONAL_ID"] = new Dictionary<string, string>
+                    {
+                        ["id_number"] = isSandbox ? "0000000000000" : (tx.Seller.IdNumber ?? "0000000000000")
+                    }
+                }
+            },
+            partnerParams = new
+            {
+                internal_reference = tx.Id.ToString(),
+                deal_reference = tx.DealReference,
+                verification_type = "seller_liveness",
+            }
         });
     }
 
