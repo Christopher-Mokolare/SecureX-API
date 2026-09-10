@@ -13,6 +13,7 @@ namespace SecureX.Api.Controllers;
 public class TransactionsController(
     AppDbContext db,
     TransactionService txService,
+    OzowCollectionService ozowCollection,
     ILogger<TransactionsController> logger) : ControllerBase
 {
     private string CallerEmail => User.FindFirstValue(ClaimTypes.Email) ?? "unknown";
@@ -69,6 +70,63 @@ public class TransactionsController(
     }
 
     // ── POST /api/transactions ─────────────────────────────────────────────────
+    // ── POST /api/transactions/{id}/payment-link ─────────────────────────────
+    [HttpPost("{id:guid}/payment-link")]
+    public async Task<IActionResult> GetPaymentLink(Guid id)
+    {
+        logger.LogInformation("=== GET PAYMENT LINK ===");
+        logger.LogInformation("TransactionId: {Id}", id);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
+        var tx = await db.Transactions
+            .Include(t => t.Buyer)
+            .Include(t => t.Seller)
+            .FirstOrDefaultAsync(t => t.Id == id);
+
+        if (tx is null)
+        {
+            logger.LogWarning("Transaction not found: {Id}", id);
+            return NotFound(new { error = "Transaction not found" });
+        }
+
+        // Verify buyer KYC and AML are both approved
+        if (tx.Buyer is null ||
+            tx.Buyer.IdCheckStatus != KycStatus.Approved ||
+            tx.Buyer.AmlStatus != KycStatus.Approved)
+        {
+            logger.LogWarning(
+                "Payment link requested for {Ref} but buyer KYC/AML not approved. KYC={Kyc}, AML={Aml}",
+                tx.DealReference, tx.Buyer?.IdCheckStatus, tx.Buyer?.AmlStatus);
+            return BadRequest(new { error = "Buyer verification is not complete" });
+        }
+
+        // Generate Ozow payment link
+        const string returnUrl = "https://www.secureexchange.co.za/payment-return";
+        var redirectUrl = await ozowCollection.CreatePaymentAsync(
+            tx.DealReference,
+            tx.TotalCheckoutAmount,
+            returnUrl);
+
+        if (string.IsNullOrEmpty(redirectUrl))
+        {
+            logger.LogError("Failed to generate Ozow payment link for {Ref}", tx.DealReference);
+            return StatusCode(500, new { error = "Could not generate payment link" });
+        }
+
+        logger.LogInformation("Payment link generated for {Ref}: {Url}", tx.DealReference, redirectUrl);
+
+        return Ok(new
+        {
+            txId = tx.Id,
+            dealReference = tx.DealReference,
+            totalAmount = tx.TotalCheckoutAmount,
+            sellerId = tx.SellerId,
+            sellerEmail = tx.Seller?.Email ?? "",
+            redirectUrl
+        });
+    }
+
+    // ── POST /api/transactions ────────────────────────────────────────────────
     [HttpPost]
     public async Task<IActionResult> CreateTransaction([FromBody] CreateTransactionRequest req)
     {
