@@ -101,4 +101,61 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
 
     private static string SanitiseRef(string input) =>
         new string(input.Where(c => char.IsLetterOrDigit(c) || c == '-').Take(20).ToArray());
+
+
+    public record OzowBank(string BankGroupId, string BankName, string BranchCode);
+
+    public async Task<List<OzowBank>> GetBanksAsync()
+    {
+        var client = httpFactory.CreateClient("OzowCollection");
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/v1/banks");
+        req.Headers.Add("SiteCode", SiteCode);
+        req.Headers.Add("ApiKey", ApiKey);
+
+        try
+        {
+            var res = await client.SendAsync(req);
+            if (!res.IsSuccessStatusCode)
+            {
+                logger.LogWarning("Ozow banks API returned {Status}", res.StatusCode);
+                return new List<OzowBank>();
+            }
+
+            var json = await res.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            var list = new List<OzowBank>();
+
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                var bankGroupId = GetString(item, "BankGroupId") ?? GetString(item, "bankGroupId") ?? "";
+                var bankName = GetString(item, "BankName") ?? GetString(item, "bankName") ?? "";
+                var branchCode = GetString(item, "BranchCode") ?? GetString(item, "branchCode") ?? "";
+
+                if (!string.IsNullOrWhiteSpace(bankGroupId) && !string.IsNullOrWhiteSpace(bankName))
+                {
+                    list.Add(new OzowBank(bankGroupId, bankName, branchCode));
+                }
+            }
+            return list;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to fetch Ozow banks");
+            return new List<OzowBank>();
+        }
+    }
+
+    private static string? GetString(JsonElement element, string name)
+    {
+        foreach (var prop in element.EnumerateObject())
+        {
+            if (string.Equals(prop.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return prop.Value.ValueKind == JsonValueKind.String
+                    ? prop.Value.GetString()
+                    : prop.Value.ToString();
+            }
+        }
+        return null;
+    }
 }

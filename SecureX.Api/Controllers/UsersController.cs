@@ -13,6 +13,7 @@ namespace SecureX.Api.Controllers;
 public class UsersController(
     AppDbContext db,
     SmileIdService smileIdService,
+    OzowCollectionService ozow,
     IConfiguration config,
     ILogger<UsersController> logger) : ControllerBase
 {
@@ -228,4 +229,13 @@ public class UsersController(
         LivenessStatus = u.LivenessStatus.ToString(),
         u.CreatedAt
     };
+
+    // GET /api/users/banks
+    [HttpGet("banks")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetBanks()
+    {
+        var banks = await ozow.GetBanksAsync();
+        return Ok(banks);
+    }
 }
