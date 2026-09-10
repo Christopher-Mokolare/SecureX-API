@@ -453,14 +453,20 @@ public class TransactionsController(
             t.Buyer.Id,
             t.Buyer.FullName,
             t.Buyer.Email,
-            t.Buyer.Phone
+            t.Buyer.Phone,
+            IdCheckStatus = t.Buyer.IdCheckStatus.ToString(),
+            AmlStatus = t.Buyer.AmlStatus.ToString(),
+            LivenessStatus = t.Buyer.LivenessStatus.ToString()
         },
         Seller = t.Seller is null ? null : new
         {
             t.Seller.Id,
             t.Seller.FullName,
             t.Seller.Email,
-            t.Seller.Phone
+            t.Seller.Phone,
+            IdCheckStatus = t.Seller.IdCheckStatus.ToString(),
+            AmlStatus = t.Seller.AmlStatus.ToString(),
+            LivenessStatus = t.Seller.LivenessStatus.ToString()
         }
     };
 }
