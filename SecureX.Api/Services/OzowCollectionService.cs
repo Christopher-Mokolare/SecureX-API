@@ -107,17 +107,28 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
 
     public async Task<List<OzowBank>> GetBanksAsync()
     {
+        // Ozow bank list lives on the PAYOUT API, not the collection API
+        var payoutBaseUrl = config["Ozow:PayoutBaseUrl"] ?? "https://payoutsapi.ozow.com/v1";
+        payoutBaseUrl = payoutBaseUrl.TrimEnd('/');
+
+        // Remove trailing /v1 if already present
+        if (payoutBaseUrl.EndsWith("/v1"))
+            payoutBaseUrl = payoutBaseUrl[..^3];
+
+        var url = $"{payoutBaseUrl}/v1/getavailablebanks";
+
         var client = httpFactory.CreateClient("OzowCollection");
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/v1/banks");
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
         req.Headers.Add("SiteCode", SiteCode);
-        req.Headers.Add("ApiKey", ApiKey);
+        req.Headers.Add("ApiKey", config["Ozow:PayoutApiKey"] ?? ApiKey);
+        req.Headers.Add("Accept", "application/json");
 
         try
         {
             var res = await client.SendAsync(req);
             if (!res.IsSuccessStatusCode)
             {
-                logger.LogWarning("Ozow banks API returned {Status}", res.StatusCode);
+                logger.LogWarning("Ozow banks API returned {Status} for {Url}", res.StatusCode, url);
                 return new List<OzowBank>();
             }
 
@@ -127,9 +138,9 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
 
             foreach (var item in doc.RootElement.EnumerateArray())
             {
-                var bankGroupId = GetString(item, "BankGroupId") ?? GetString(item, "bankGroupId") ?? "";
-                var bankName = GetString(item, "BankName") ?? GetString(item, "bankName") ?? "";
-                var branchCode = GetString(item, "BranchCode") ?? GetString(item, "branchCode") ?? "";
+                var bankGroupId = GetString(item, "bankGroupId") ?? GetString(item, "BankGroupId") ?? "";
+                var bankName = GetString(item, "bankGroupName") ?? GetString(item, "BankGroupName") ?? "";
+                var branchCode = GetString(item, "universalBranchCode") ?? GetString(item, "UniversalBranchCode") ?? "";
 
                 if (!string.IsNullOrWhiteSpace(bankGroupId) && !string.IsNullOrWhiteSpace(bankName))
                 {
