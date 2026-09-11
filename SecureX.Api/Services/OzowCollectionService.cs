@@ -107,15 +107,10 @@ public class OzowCollectionService(IHttpClientFactory httpFactory, IConfiguratio
 
     public async Task<List<OzowBank>> GetBanksAsync()
     {
-        // Ozow bank list lives on the PAYOUT API, not the collection API
-        var payoutBaseUrl = config["Ozow:PayoutBaseUrl"] ?? "https://payoutsapi.ozow.com/v1";
-        payoutBaseUrl = payoutBaseUrl.TrimEnd('/');
-
-        // Remove trailing /v1 if already present
-        if (payoutBaseUrl.EndsWith("/v1"))
-            payoutBaseUrl = payoutBaseUrl[..^3];
-
-        var url = $"{payoutBaseUrl}/v1/getavailablebanks";
+        // Hardcoded: Ozow bank list lives on the payouts API.
+        // The collection API (api.ozow.com) does NOT expose this endpoint.
+        const string baseUrl = "https://payoutsapi.ozow.com";
+        var url = $"{baseUrl}/v1/getavailablebanks";
 
         var client = httpFactory.CreateClient("OzowCollection");
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
