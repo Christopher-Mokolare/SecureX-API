@@ -20,7 +20,8 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             return null;
         }
 
-        return await MintTokenAsync(partnerId, apiKey, baseUrl, product: "biometric_kyc");
+        var product = config["SmileId:BiometricProduct"] ?? "biometric_kyc";
+        return await MintTokenAsync(partnerId, apiKey, baseUrl, product: product);
     }
 
     public async Task<string?> SubmitEnhancedKycAsync(
@@ -38,7 +39,8 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             return null;
         }
 
-        var token = await MintTokenAsync(partnerId, apiKey, baseUrl, product: "enhanced_kyc", country: country);
+        var enhancedProduct = config["SmileId:EnhancedProduct"] ?? "enhanced_kyc";
+        var token = await MintTokenAsync(partnerId, apiKey, baseUrl, product: enhancedProduct, country: country);
         if (token is null) return null;
 
         var nameParts = fullName.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -210,7 +212,7 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
     }
 
     private async Task<string?> MintTokenAsync(string partnerId, string apiKey, string baseUrl,
-        string product = "biometric_kyc", string country = "ZA")
+        string product, string country = "ZA")
     {
         try
         {
@@ -222,8 +224,8 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
                 ("partner_id", partnerId),
                 ("product", product),
                 ("country", country),
-                ("id_type", "NATIONAL_ID"),
-                ("id_selection", "false")
+                ("id_type", config["SmileId:IdType"] ?? "NATIONAL_ID"),
+                ("id_selection", config["SmileId:IdSelection"] ?? "false")
             };
 
             using var content = CreateMultipartContent(fields.ToArray());

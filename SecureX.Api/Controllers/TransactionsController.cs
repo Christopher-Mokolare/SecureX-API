@@ -154,6 +154,10 @@ public class TransactionsController(
         }
 
         var isSandbox = (config["SmileId:BaseUrl"] ?? "").Contains("testapi", StringComparison.OrdinalIgnoreCase);
+        var product   = config["SmileId:BiometricProduct"] ?? "biometric_kyc";
+        var country   = config["SmileId:Country"]          ?? "ZA";
+        var idType    = config["SmileId:IdType"]           ?? "NATIONAL_ID";
+        var sandboxId = config["SmileId:SandboxIdNumber"]  ?? "0000000000000";
         var sellerNameParts = tx.Seller.FullName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var givenNames = sellerNameParts.Length > 1
             ? string.Join(' ', sellerNameParts[..^1])
@@ -163,7 +167,7 @@ public class TransactionsController(
         return Ok(new
         {
             token = token,
-            product = "biometric_kyc",
+            product = product,
             environment = isSandbox ? "sandbox" : "production",
             partnerId = config["SmileId:PartnerId"] ?? "8811",
             callbackUrl = config["SmileId:CallbackUrl"] ?? "",
@@ -176,11 +180,11 @@ public class TransactionsController(
             },
             idInfo = new Dictionary<string, object>
             {
-                ["ZA"] = new Dictionary<string, object>
+                [country] = new Dictionary<string, object>
                 {
-                    ["NATIONAL_ID"] = new Dictionary<string, string>
+                    [idType] = new Dictionary<string, string>
                     {
-                        ["id_number"] = isSandbox ? "0000000000000" : (tx.Seller.IdNumber ?? "0000000000000")
+                        ["id_number"] = isSandbox ? sandboxId : (string.IsNullOrWhiteSpace(tx.Seller.IdNumber) ? sandboxId : tx.Seller.IdNumber)
                     }
                 }
             },
