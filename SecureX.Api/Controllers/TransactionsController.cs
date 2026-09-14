@@ -580,13 +580,6 @@ public class TransactionsController(
             return StatusCode(403, new { error = "Seller verification is incomplete. Please complete biometric liveness verification before continuing." });
         }
 
-        if (tx.Seller?.LivenessStatus != KycStatus.Approved)
-        {
-            logger.LogWarning("Seller verification incomplete for transaction {Id}: LivenessStatus={Status}",
-                id, tx.Seller?.LivenessStatus);
-            return StatusCode(403, new { error = "Seller verification is incomplete. Please complete biometric liveness verification before continuing." });
-        }
-
         if (tx.Status != TransactionStatus.LogisticsPending)
         {
             logger.LogWarning("Cannot confirm delivery: Transaction status is {Status}, expected LogisticsPending", tx.Status);
@@ -667,13 +660,6 @@ public class TransactionsController(
         {
             logger.LogWarning("Caller {UserId} is not the seller for transaction {Id}", callerUserId, id);
             return Forbid();
-        }
-
-        if (tx.Seller?.LivenessStatus != KycStatus.Approved)
-        {
-            logger.LogWarning("Seller verification incomplete for transaction {Id}: LivenessStatus={Status}",
-                id, tx.Seller?.LivenessStatus);
-            return StatusCode(403, new { error = "Seller verification is incomplete. Please complete biometric liveness verification before continuing." });
         }
 
         if (tx.Seller?.LivenessStatus != KycStatus.Approved)
