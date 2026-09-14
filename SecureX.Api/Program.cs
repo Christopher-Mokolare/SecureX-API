@@ -67,6 +67,8 @@ cfg["SmileId:ApiKey"]                  = cfg["SMILEID_API_KEY"] ?? cfg["SmileId:
 cfg["SmileId:BaseUrl"]                 = cfg["SMILEID_BASE_URL"] ?? cfg["SmileId:BaseUrl"];
 cfg["SmileId:CallbackUrl"]             = cfg["SMILEID_CALLBACK_URL"] ?? cfg["SmileId:CallbackUrl"];
 cfg["SmileId:PolicyUrl"]               = cfg["SMILEID_POLICY_URL"] ?? cfg["SmileId:PolicyUrl"];
+cfg["DealToken:Secret"]     = cfg["DEAL_TOKEN_SECRET"]     ?? cfg["DealToken:Secret"];
+cfg["DealToken:ExpiryDays"] = cfg["DEAL_TOKEN_EXPIRY_DAYS"] ?? cfg["DealToken:ExpiryDays"] ?? "7";
 
 
 // ── Database ─────────────────────────────────────────────────────────────────
@@ -115,6 +117,7 @@ builder.Services.AddScoped<OzowCollectionService>();
 builder.Services.AddScoped<OzowPayoutService>();
 builder.Services.AddScoped<SmileIdService>();
 builder.Services.AddScoped<TransactionService>();
+builder.Services.AddSingleton<DealTokenService>();
 builder.Services.AddHostedService<ReconciliationService>();
 builder.Services.AddHostedService<OzowPayoutPollerService>();
 builder.Services.AddHostedService<InspectionWindowExpiryService>();
