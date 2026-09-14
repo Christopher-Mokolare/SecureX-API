@@ -11,6 +11,7 @@ public class OzowPaymentController(
     HashService hash,
     IConfiguration config,
     IWebHostEnvironment env,
+    IServiceScopeFactory scopeFactory,
     ILogger<OzowPaymentController> logger) : ControllerBase
 {
     [HttpPost("/securex/payment-notification")]
@@ -49,7 +50,47 @@ public class OzowPaymentController(
         {
             var advanced = await txService.HandlePaymentReceivedAsync(txRef);
             if (!advanced)
+            {
                 logger.LogWarning("Payment notification: no PaymentPending transaction found for {Ref}", txRef);
+            }
+            else
+            {
+                // Fire-and-forget: notify seller (with verification link) and buyer (confirmation).
+                // Wrapped in Task.Run so we return 200 to Ozow immediately.
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        using var scope = scopeFactory.CreateScope();
+                        var db = scope.ServiceProvider.GetRequiredService<SecureX.Api.Data.AppDbContext>();
+                        var emailSvc = scope.ServiceProvider.GetRequiredService<SecureX.Api.Services.EmailService>();
+                        var dealTokens = scope.ServiceProvider.GetRequiredService<SecureX.Api.Services.DealTokenService>();
+
+                        var tx = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions
+                            .FirstOrDefaultAsync(
+                                Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions
+                                    .Include(
+                                        Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions
+                                            .Include(db.Transactions, t => t.Buyer),
+                                        t => t.Seller),
+                                t => t.DealReference == txRef);
+
+                        if (tx?.Seller is not null)
+                        {
+                            var sellerToken = dealTokens.GenerateSellerToken(tx.DealReference, tx.Id);
+                            await emailSvc.SendSellerVerificationLinkAsync(tx.Seller, tx, sellerToken);
+                        }
+                        if (tx?.Buyer is not null)
+                        {
+                            await emailSvc.SendEscrowFundedAsync(tx.Buyer, tx);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Post-payment email dispatch failed for {Ref}", txRef);
+                    }
+                });
+            }
         }
 
         return Ok();

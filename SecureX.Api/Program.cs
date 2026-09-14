@@ -67,6 +67,11 @@ cfg["SmileId:ApiKey"]                  = cfg["SMILEID_API_KEY"] ?? cfg["SmileId:
 cfg["SmileId:BaseUrl"]                 = cfg["SMILEID_BASE_URL"] ?? cfg["SmileId:BaseUrl"];
 cfg["SmileId:CallbackUrl"]             = cfg["SMILEID_CALLBACK_URL"] ?? cfg["SmileId:CallbackUrl"];
 cfg["SmileId:PolicyUrl"]               = cfg["SMILEID_POLICY_URL"] ?? cfg["SmileId:PolicyUrl"];
+cfg["Ses:FromAddress"]  = cfg["SES_FROM_ADDRESS"]  ?? "noreply@secureexchange.co.za";
+cfg["Ses:FromName"]     = cfg["SES_FROM_NAME"]     ?? "SecureX";
+cfg["Ses:ReplyTo"]      = cfg["SES_REPLY_TO"]      ?? "info@secureexchange.co.za";
+cfg["Ses:AdminEmail"]   = cfg["SES_ADMIN_EMAIL"]   ?? "info@secureexchange.co.za";
+cfg["Ses:FrontendBase"] = cfg["SES_FRONTEND_BASE"] ?? "https://www.secureexchange.co.za";
 cfg["DealToken:Secret"]     = cfg["DEAL_TOKEN_SECRET"]     ?? cfg["DealToken:Secret"];
 cfg["DealToken:ExpiryDays"] = cfg["DEAL_TOKEN_EXPIRY_DAYS"] ?? cfg["DealToken:ExpiryDays"] ?? "7";
 
@@ -117,6 +122,8 @@ builder.Services.AddScoped<OzowCollectionService>();
 builder.Services.AddScoped<OzowPayoutService>();
 builder.Services.AddScoped<SmileIdService>();
 builder.Services.AddScoped<TransactionService>();
+builder.Services.AddScoped<EmailService>();
+builder.Services.AddAWSService<Amazon.SimpleEmailV2.IAmazonSimpleEmailServiceV2>();
 builder.Services.AddSingleton<DealTokenService>();
 builder.Services.AddHostedService<ReconciliationService>();
 builder.Services.AddHostedService<OzowPayoutPollerService>();

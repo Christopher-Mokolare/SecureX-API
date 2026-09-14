@@ -17,6 +17,7 @@ public class TransactionsController(
     TransactionService txService,
     OzowCollectionService ozowCollection,
     DealTokenService dealTokens,
+    IServiceScopeFactory scopeFactory,
     IConfiguration config,
     ILogger<TransactionsController> logger) : ControllerBase
 {
@@ -509,6 +510,21 @@ public class TransactionsController(
                 tx.Version);
 
             logger.LogInformation("Item rejected for transaction: {DealReference}, Reason: {Reason}", tx.DealReference, req.Reason);
+
+            // Fire-and-forget admin dispute alert
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var scope = scopeFactory.CreateScope();
+                    var emailSvc = scope.ServiceProvider.GetRequiredService<EmailService>();
+                    await emailSvc.SendAdminDisputeAlertAsync(updated, req.Reason);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Dispute email dispatch failed for {Ref}", tx.DealReference);
+                }
+            });
 
             return Ok(new
             {
