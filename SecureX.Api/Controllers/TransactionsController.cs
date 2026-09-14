@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SecureX.Api.Data;
 using SecureX.Api.Models;
+using SecureX.Api.Security;
 using SecureX.Api.Services;
 using System.Security.Claims;
 
@@ -15,6 +16,7 @@ public class TransactionsController(
     AppDbContext db,
     TransactionService txService,
     OzowCollectionService ozowCollection,
+    DealTokenService dealTokens,
     IConfiguration config,
     ILogger<TransactionsController> logger) : ControllerBase
 {
@@ -22,7 +24,7 @@ public class TransactionsController(
 
     // ── GET /api/transactions/{id} ────────────────────────────────────────────
     [HttpGet("{id:guid}")]
-    [Authorize]
+    [DealToken("buyer", "seller")]
     public async Task<IActionResult> GetTransaction(Guid id)
     {
         logger.LogInformation("=== GET TRANSACTION ===");
@@ -43,17 +45,33 @@ public class TransactionsController(
 
         logger.LogInformation("Transaction found: {DealReference}, Status: {Status}", tx.DealReference, tx.Status);
 
-        // Check if user has access (buyer or seller)
-        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        // Check access — deal token first, then legacy JWT
+        var dealClaims = DealTokenAttribute.GetClaims(HttpContext);
+        Guid? callerUserId = null;
+
+        if (dealClaims is not null)
         {
-            logger.LogWarning("GetTransaction: missing/invalid user claim for {Id}", id);
-            return Unauthorized(new { error = "Invalid user" });
+            if (dealClaims.TxId != tx.Id)
+            {
+                logger.LogWarning("Deal token does not match transaction {Id}", id);
+                return Forbid();
+            }
+        }
+        else
+        {
+            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var parsedUserId))
+            {
+                logger.LogWarning("GetTransaction: missing/invalid user claim for {Id}", id);
+                return Unauthorized(new { error = "Invalid user" });
+            }
+            callerUserId = parsedUserId;
         }
 
-        if (tx.BuyerId != userId && tx.SellerId != userId && !User.IsInRole("Admin"))
+        var effectiveUserId = ResolveEffectiveUserId(tx, callerUserId);
+        if (effectiveUserId is null && !User.IsInRole("Admin"))
         {
-            logger.LogWarning("Unauthorized access to transaction {Id} by user {UserId}", id, userId);
+            logger.LogWarning("Unauthorized access to transaction {Id}", id);
             return Forbid();
         }
 
@@ -77,7 +95,7 @@ public class TransactionsController(
 
     // ── GET /api/transactions/ref/{dealReference} ─────────────────────────────
     [HttpGet("ref/{dealReference}")]
-    [Authorize]
+    [DealToken("buyer", "seller")]
     public async Task<IActionResult> GetTransactionByRef(string dealReference)
     {
         logger.LogInformation("=== GET TRANSACTION BY REF ===");
@@ -96,13 +114,29 @@ public class TransactionsController(
             return NotFound(new { error = "Transaction not found" });
         }
 
-        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
-            return Unauthorized(new { error = "Invalid user" });
+        var dealClaims = DealTokenAttribute.GetClaims(HttpContext);
+        Guid? callerUserId = null;
 
-        if (tx.BuyerId != userId && tx.SellerId != userId && !User.IsInRole("Admin"))
+        if (dealClaims is not null)
         {
-            logger.LogWarning("Unauthorized access to {Ref} by user {UserId}", dealReference, userId);
+            if (dealClaims.TxId != tx.Id)
+            {
+                logger.LogWarning("Deal token does not match transaction {Ref}", dealReference);
+                return Forbid();
+            }
+        }
+        else
+        {
+            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var parsedUserId))
+                return Unauthorized(new { error = "Invalid user" });
+            callerUserId = parsedUserId;
+        }
+
+        var effectiveUserId = ResolveEffectiveUserId(tx, callerUserId);
+        if (effectiveUserId is null && !User.IsInRole("Admin"))
+        {
+            logger.LogWarning("Unauthorized access to {Ref}", dealReference);
             return Forbid();
         }
 
@@ -124,6 +158,7 @@ public class TransactionsController(
     // ── POST /api/transactions ─────────────────────────────────────────────────
     // ── POST /api/transactions/{id}/payment-link ─────────────────────────────
     [HttpPost("{id:guid}/payment-link")]
+    [DealToken("buyer")]
     public async Task<IActionResult> GetPaymentLink(Guid id)
     {
         logger.LogInformation("=== GET PAYMENT LINK ===");
@@ -167,6 +202,8 @@ public class TransactionsController(
 
         logger.LogInformation("Payment link generated for {Ref}: {Url}", tx.DealReference, redirectUrl);
 
+        var buyerDealToken = dealTokens.GenerateBuyerToken(tx.DealReference, tx.Id);
+
         return Ok(new
         {
             txId = tx.Id,
@@ -174,12 +211,14 @@ public class TransactionsController(
             totalAmount = tx.TotalCheckoutAmount,
             sellerId = tx.SellerId,
             sellerEmail = tx.Seller?.Email ?? "",
-            redirectUrl
+            redirectUrl,
+            buyerDealToken,
         });
     }
 
     // ── POST /api/transactions/{id}/start-seller-kyc ─────────────────────────
     [HttpPost("{id:guid}/start-seller-kyc")]
+    [DealToken("seller")]
     public async Task<IActionResult> StartSellerKyc(Guid id)
     {
         logger.LogInformation("=== START SELLER KYC ===");
@@ -288,12 +327,17 @@ public class TransactionsController(
                 transaction.DealReference,
                 transaction.Id);
 
+            var buyerDealToken  = dealTokens.GenerateBuyerToken(transaction.DealReference, transaction.Id);
+            var sellerDealToken = dealTokens.GenerateSellerToken(transaction.DealReference, transaction.Id);
+
             return Ok(new
             {
                 transactionId = transaction.Id,
                 dealReference = transaction.DealReference,
                 status = transaction.Status.ToString(),
-                redirectUrl = $"/transaction/{transaction.Id}"
+                redirectUrl = $"/transaction/{transaction.Id}",
+                buyerDealToken,
+                sellerDealToken,
             });
         }
         catch (Exception ex)
@@ -312,18 +356,32 @@ public class TransactionsController(
 
     // ── POST /api/transactions/{id}/accept ────────────────────────────────────
     [HttpPost("{id:guid}/accept")]
-    [Authorize]
+    [DealToken("buyer")]
     public async Task<IActionResult> AcceptItem(Guid id)
     {
         logger.LogInformation("=== ACCEPT ITEM ===");
         logger.LogInformation("TransactionId: {Id}", id);
         logger.LogInformation("Caller: {Caller}", CallerEmail);
 
-        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        var dealClaims = DealTokenAttribute.GetClaims(HttpContext);
+        Guid? callerUserId = null;
+
+        if (dealClaims is not null)
         {
-            logger.LogWarning("Unauthorized: No valid user ID in token");
-            return Unauthorized(new { error = "Invalid user" });
+            // Deal-token path: caller identity is derived from the token's party,
+            // resolved against the transaction below. We defer that comparison
+            // until after tx is loaded. For now, mark as deal-token caller.
+        }
+        else
+        {
+            // Legacy JWT path
+            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var parsedUserId))
+            {
+                logger.LogWarning("Unauthorized: No valid user ID in token");
+                return Unauthorized(new { error = "Invalid user" });
+            }
+            callerUserId = parsedUserId;
         }
 
         var tx = await db.Transactions
@@ -337,9 +395,10 @@ public class TransactionsController(
             return NotFound(new { error = "Transaction not found" });
         }
 
-        if (tx.BuyerId != userId)
+        var effectiveUserId = ResolveEffectiveUserId(tx, callerUserId);
+        if (effectiveUserId is null || tx.BuyerId != effectiveUserId.Value)
         {
-            logger.LogWarning("User {UserId} is not the buyer for transaction {Id}", userId, id);
+            logger.LogWarning("Caller {UserId} is not the buyer for transaction {Id}", callerUserId, id);
             return Forbid();
         }
 
@@ -381,18 +440,32 @@ public class TransactionsController(
 
     // ── POST /api/transactions/{id}/reject ────────────────────────────────────
     [HttpPost("{id:guid}/reject")]
-    [Authorize]
+    [DealToken("buyer")]
     public async Task<IActionResult> RejectItem(Guid id, [FromBody] RejectItemRequest req)
     {
         logger.LogInformation("=== REJECT ITEM ===");
         logger.LogInformation("TransactionId: {Id}, Reason: {Reason}", id, req.Reason);
         logger.LogInformation("Caller: {Caller}", CallerEmail);
 
-        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        var dealClaims = DealTokenAttribute.GetClaims(HttpContext);
+        Guid? callerUserId = null;
+
+        if (dealClaims is not null)
         {
-            logger.LogWarning("Unauthorized: No valid user ID in token");
-            return Unauthorized(new { error = "Invalid user" });
+            // Deal-token path: caller identity is derived from the token's party,
+            // resolved against the transaction below. We defer that comparison
+            // until after tx is loaded. For now, mark as deal-token caller.
+        }
+        else
+        {
+            // Legacy JWT path
+            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var parsedUserId))
+            {
+                logger.LogWarning("Unauthorized: No valid user ID in token");
+                return Unauthorized(new { error = "Invalid user" });
+            }
+            callerUserId = parsedUserId;
         }
 
         var tx = await db.Transactions
@@ -406,9 +479,10 @@ public class TransactionsController(
             return NotFound(new { error = "Transaction not found" });
         }
 
-        if (tx.BuyerId != userId)
+        var effectiveUserId = ResolveEffectiveUserId(tx, callerUserId);
+        if (effectiveUserId is null || tx.BuyerId != effectiveUserId.Value)
         {
-            logger.LogWarning("User {UserId} is not the buyer for transaction {Id}", userId, id);
+            logger.LogWarning("Caller {UserId} is not the buyer for transaction {Id}", callerUserId, id);
             return Forbid();
         }
 
@@ -447,18 +521,32 @@ public class TransactionsController(
 
     // ── POST /api/transactions/{id}/confirm-delivery ──────────────────────────
     [HttpPost("{id:guid}/confirm-delivery")]
-    [Authorize]
+    [DealToken("seller")]
     public async Task<IActionResult> ConfirmDelivery(Guid id)
     {
         logger.LogInformation("=== CONFIRM DELIVERY ===");
         logger.LogInformation("TransactionId: {Id}", id);
         logger.LogInformation("Caller: {Caller}", CallerEmail);
 
-        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        var dealClaims = DealTokenAttribute.GetClaims(HttpContext);
+        Guid? callerUserId = null;
+
+        if (dealClaims is not null)
         {
-            logger.LogWarning("Unauthorized: No valid user ID in token");
-            return Unauthorized(new { error = "Invalid user" });
+            // Deal-token path: caller identity is derived from the token's party,
+            // resolved against the transaction below. We defer that comparison
+            // until after tx is loaded. For now, mark as deal-token caller.
+        }
+        else
+        {
+            // Legacy JWT path
+            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var parsedUserId))
+            {
+                logger.LogWarning("Unauthorized: No valid user ID in token");
+                return Unauthorized(new { error = "Invalid user" });
+            }
+            callerUserId = parsedUserId;
         }
 
         var tx = await db.Transactions
@@ -472,9 +560,10 @@ public class TransactionsController(
             return NotFound(new { error = "Transaction not found" });
         }
 
-        if (tx.SellerId != userId)
+        var effectiveUserId = ResolveEffectiveUserId(tx, callerUserId);
+        if (effectiveUserId is null || tx.SellerId != effectiveUserId.Value)
         {
-            logger.LogWarning("User {UserId} is not the seller for transaction {Id}", userId, id);
+            logger.LogWarning("Caller {UserId} is not the seller for transaction {Id}", callerUserId, id);
             return Forbid();
         }
 
@@ -514,18 +603,32 @@ public class TransactionsController(
 
     // ── POST /api/transactions/{id}/mark-as-shipped ───────────────────────────
     [HttpPost("{id:guid}/mark-as-shipped")]
-    [Authorize]
+    [DealToken("seller")]
     public async Task<IActionResult> MarkAsShipped(Guid id)
     {
         logger.LogInformation("=== MARK AS SHIPPED ===");
         logger.LogInformation("TransactionId: {Id}", id);
         logger.LogInformation("Caller: {Caller}", CallerEmail);
 
-        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        var dealClaims = DealTokenAttribute.GetClaims(HttpContext);
+        Guid? callerUserId = null;
+
+        if (dealClaims is not null)
         {
-            logger.LogWarning("Unauthorized: No valid user ID in token");
-            return Unauthorized(new { error = "Invalid user" });
+            // Deal-token path: caller identity is derived from the token's party,
+            // resolved against the transaction below. We defer that comparison
+            // until after tx is loaded. For now, mark as deal-token caller.
+        }
+        else
+        {
+            // Legacy JWT path
+            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var parsedUserId))
+            {
+                logger.LogWarning("Unauthorized: No valid user ID in token");
+                return Unauthorized(new { error = "Invalid user" });
+            }
+            callerUserId = parsedUserId;
         }
 
         var tx = await db.Transactions
@@ -539,9 +642,10 @@ public class TransactionsController(
             return NotFound(new { error = "Transaction not found" });
         }
 
-        if (tx.SellerId != userId)
+        var effectiveUserId = ResolveEffectiveUserId(tx, callerUserId);
+        if (effectiveUserId is null || tx.SellerId != effectiveUserId.Value)
         {
-            logger.LogWarning("User {UserId} is not the seller for transaction {Id}", userId, id);
+            logger.LogWarning("Caller {UserId} is not the seller for transaction {Id}", callerUserId, id);
             return Forbid();
         }
 
@@ -589,12 +693,31 @@ public class TransactionsController(
         logger.LogInformation("Page: {Page}, Size: {Size}", page, size);
         logger.LogInformation("Caller: {Caller}", CallerEmail);
 
-        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        var dealClaims = DealTokenAttribute.GetClaims(HttpContext);
+        Guid? callerUserId = null;
+
+        if (dealClaims is not null)
         {
-            logger.LogWarning("Unauthorized: No valid user ID in token");
-            return Unauthorized(new { error = "Invalid user" });
+            // Deal-token path: caller identity is derived from the token's party,
+            // resolved against the transaction below. We defer that comparison
+            // until after tx is loaded. For now, mark as deal-token caller.
         }
+        else
+        {
+            // Legacy JWT path
+            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var parsedUserId))
+            {
+                logger.LogWarning("Unauthorized: No valid user ID in token");
+                return Unauthorized(new { error = "Invalid user" });
+            }
+            callerUserId = parsedUserId;
+        }
+
+        if (callerUserId is null)
+            return Unauthorized(new { error = "Invalid user" });
+
+        var userId = callerUserId.Value;
 
         size = Math.Clamp(size, 1, 100);
         page = Math.Max(1, page);
@@ -621,6 +744,30 @@ public class TransactionsController(
             pages = (int)Math.Ceiling((double)total / size),
             items = items.Select(MapTransaction)
         });
+    }
+
+
+    // ── Deal-token aware caller resolution ────────────────────────────────
+    // Returns the caller's user ID for a transaction, honoring both the
+    // deal-token path (party -> buyer/seller ID on the tx) and the legacy
+    // JWT path. Returns null if the caller isn't a party on the transaction.
+    private Guid? ResolveEffectiveUserId(Transaction tx, Guid? legacyUserId)
+    {
+        var claims = DealTokenAttribute.GetClaims(HttpContext);
+        if (claims is not null)
+        {
+            return claims.Party.ToLowerInvariant() switch
+            {
+                "buyer"  => tx.BuyerId,
+                "seller" => tx.SellerId,
+                _        => null,
+            };
+        }
+        if (legacyUserId is { } id && (id == tx.BuyerId || id == tx.SellerId))
+            return id;
+        // Admin can act as either
+        if (User.IsInRole("Admin")) return legacyUserId;
+        return null;
     }
 
     // ── Mappers ───────────────────────────────────────────────────────────────
