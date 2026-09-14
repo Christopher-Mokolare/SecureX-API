@@ -109,6 +109,52 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
             return Ok();
         }
 
+        if (verificationType == "seller_document_verification")
+        {
+            var sellerTx = Guid.TryParse(internalReference, out var sellerTxId)
+                ? await db.Transactions.Include(t => t.Seller).FirstOrDefaultAsync(t => t.Id == sellerTxId)
+                : await db.Transactions.Include(t => t.Seller)
+                    .FirstOrDefaultAsync(t => t.DealReference == dealReference);
+
+            if (sellerTx?.Seller is null)
+            {
+                logger.LogWarning("SmileID seller doc-verification webhook: transaction not found for {Ref}",
+                    dealReference?.Replace("\n", "").Replace("\r", ""));
+                return Ok();
+            }
+
+            switch (status)
+            {
+                case "clear":
+                    sellerTx.Seller.IdCheckStatus = KycStatus.Approved;
+                    logger.LogInformation("SmileID doc-verification clear for deal {Ref}",
+                        dealReference?.Replace("\n", "").Replace("\r", ""));
+                    break;
+                case "attention":
+                    sellerTx.Seller.IdCheckStatus = KycStatus.Approved;
+                    logger.LogInformation("SmileID doc-verification attention (approved with flags) for deal {Ref}",
+                        dealReference?.Replace("\n", "").Replace("\r", ""));
+                    break;
+                case "block":
+                    sellerTx.Seller.IdCheckStatus = KycStatus.Failed;
+                    logger.LogWarning("SmileID doc-verification blocked for deal {Ref}",
+                        dealReference?.Replace("\n", "").Replace("\r", ""));
+                    break;
+                case "error":
+                    logger.LogError("SmileID doc-verification error for deal {Ref} — status stays Pending",
+                        dealReference?.Replace("\n", "").Replace("\r", ""));
+                    return Ok();
+                default:
+                    logger.LogWarning("SmileID doc-verification unknown status '{Status}'",
+                        status?.Replace("\n", "").Replace("\r", ""));
+                    return Ok();
+            }
+
+            sellerTx.Seller.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            return Ok();
+        }
+
         var amlResultCode = GetString(payload, "ResultCode") ?? GetString(payload, "result_code");
         var amlJobId = partnerParams.HasValue
             ? GetString(partnerParams.Value, "job_id")

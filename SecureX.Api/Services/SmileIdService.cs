@@ -8,6 +8,25 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
 {
     public sealed record AmlResult(string JobId, string ResultCode);
 
+    /// <summary>
+    /// Mints a v3 token for the document-verification product.
+    /// The seller uploads a photo of their SA ID card instead of doing a selfie.
+    /// </summary>
+    public async Task<string?> CreateDocumentVerificationTokenAsync()
+    {
+        var partnerId = config["SmileId:PartnerId"] ?? "";
+        var apiKey = config["SmileId:ApiKey"] ?? "";
+        var baseUrl = (config["SmileId:BaseUrl"] ?? "https://testapi.smileidentity.com").TrimEnd('/');
+
+        if (string.IsNullOrWhiteSpace(partnerId) || string.IsNullOrWhiteSpace(apiKey))
+        {
+            logger.LogError("SmileID credentials are not configured");
+            return null;
+        }
+
+        return await MintTokenAsync(partnerId, apiKey, baseUrl, product: "doc_verification");
+    }
+
     public async Task<string?> CreateBiometricKycTokenAsync()
     {
         var partnerId = config["SmileId:PartnerId"] ?? "";

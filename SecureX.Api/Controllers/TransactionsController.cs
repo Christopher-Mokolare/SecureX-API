@@ -235,7 +235,7 @@ public class TransactionsController(
             return NotFound(new { error = "Transaction or seller not found" });
         }
 
-        var token = await txService.CreateSellerLivenessTokenAsync(tx);
+        var token = await txService.CreateSellerVerificationTokenAsync(tx);
 
         if (string.IsNullOrEmpty(token))
         {
@@ -244,7 +244,7 @@ public class TransactionsController(
         }
 
         var isSandbox = (config["SmileId:BaseUrl"] ?? "").Contains("testapi", StringComparison.OrdinalIgnoreCase);
-        var product   = config["SmileId:BiometricProduct"] ?? "biometric_kyc";
+        var product   = "doc_verification";
         var country   = config["SmileId:Country"]          ?? "ZA";
         var idType    = config["SmileId:IdType"]           ?? "NATIONAL_ID";
         var sandboxId = config["SmileId:SandboxIdNumber"]  ?? "0000000000000";
@@ -254,9 +254,11 @@ public class TransactionsController(
             : tx.Seller.FullName;
         var lastName = sellerNameParts.Length > 1 ? sellerNameParts[^1] : "";
 
+        // Document verification for ZA uses NATIONAL_ID_NO_PHOTO (upload an ID card photo).
+        var docVerifyIdType = "NATIONAL_ID_NO_PHOTO";
         var idSelection = new Dictionary<string, string[]>
         {
-            [country] = new[] { idType }
+            [country] = new[] { docVerifyIdType }
         };
 
         return Ok(new
@@ -274,21 +276,12 @@ public class TransactionsController(
                 email = tx.Seller.Email,
                 phone_number = tx.Seller.Phone,
             },
-            idInfo = new Dictionary<string, object>
-            {
-                [country] = new Dictionary<string, object>
-                {
-                    [idType] = new Dictionary<string, string>
-                    {
-                        ["id_number"] = isSandbox ? sandboxId : (string.IsNullOrWhiteSpace(tx.Seller.IdNumber) ? sandboxId : tx.Seller.IdNumber)
-                    }
-                }
-            },
+
             partnerParams = new
             {
                 internal_reference = tx.Id.ToString(),
                 deal_reference = tx.DealReference,
-                verification_type = "seller_liveness",
+                verification_type = "seller_document_verification",
             }
         });
     }
@@ -589,11 +582,11 @@ public class TransactionsController(
             return Forbid();
         }
 
-        if (tx.Seller?.LivenessStatus != KycStatus.Approved)
+        if (tx.Seller?.IdCheckStatus != KycStatus.Approved)
         {
-            logger.LogWarning("Seller verification incomplete for transaction {Id}: LivenessStatus={Status}",
-                id, tx.Seller?.LivenessStatus);
-            return StatusCode(403, new { error = "Seller verification is incomplete. Please complete biometric liveness verification before continuing." });
+            logger.LogWarning("Seller verification incomplete for transaction {Id}: IdCheckStatus={Status}",
+                id, tx.Seller?.IdCheckStatus);
+            return StatusCode(403, new { error = "Seller verification is incomplete. Please complete ID verification before continuing." });
         }
 
         if (tx.Status != TransactionStatus.LogisticsPending)
@@ -678,11 +671,11 @@ public class TransactionsController(
             return Forbid();
         }
 
-        if (tx.Seller?.LivenessStatus != KycStatus.Approved)
+        if (tx.Seller?.IdCheckStatus != KycStatus.Approved)
         {
-            logger.LogWarning("Seller verification incomplete for transaction {Id}: LivenessStatus={Status}",
-                id, tx.Seller?.LivenessStatus);
-            return StatusCode(403, new { error = "Seller verification is incomplete. Please complete biometric liveness verification before continuing." });
+            logger.LogWarning("Seller verification incomplete for transaction {Id}: IdCheckStatus={Status}",
+                id, tx.Seller?.IdCheckStatus);
+            return StatusCode(403, new { error = "Seller verification is incomplete. Please complete ID verification before continuing." });
         }
 
         if (tx.Status != TransactionStatus.FundsSecured)

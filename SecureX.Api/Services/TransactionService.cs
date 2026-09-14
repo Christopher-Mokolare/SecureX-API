@@ -60,7 +60,7 @@ public class TransactionService(
         _ => (fee, 0m)
     };
 
-    public async Task<string?> CreateSellerLivenessTokenAsync(Transaction tx)
+    public async Task<string?> CreateSellerVerificationTokenAsync(Transaction tx)
     {
         if (tx.Seller is null)
             return null;
@@ -83,7 +83,7 @@ public class TransactionService(
             }
         }
 
-        return await smileId.CreateBiometricKycTokenAsync();
+        return await smileId.CreateDocumentVerificationTokenAsync();
     }
 
     // ── Step 3: Create transaction ───────────────────────────────────────────
