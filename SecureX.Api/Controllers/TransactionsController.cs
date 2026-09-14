@@ -783,6 +783,53 @@ public class TransactionsController(
     }
 
 
+    // ── POST /api/transactions/{id}/resend-seller-link ────────────────────────
+    [HttpPost("{id:guid}/resend-seller-link")]
+    [DealToken("buyer")]
+    public async Task<IActionResult> ResendSellerLink(Guid id)
+    {
+        logger.LogInformation("=== RESEND SELLER LINK ===");
+        logger.LogInformation("TransactionId: {Id}", id);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
+        var tx = await db.Transactions
+            .Include(t => t.Seller)
+            .Include(t => t.Buyer)
+            .FirstOrDefaultAsync(t => t.Id == id);
+
+        if (tx?.Seller is null)
+        {
+            logger.LogWarning("ResendSellerLink: transaction or seller not found for {Id}", id);
+            return NotFound(new { error = "Transaction or seller not found" });
+        }
+
+        if (tx.Status != TransactionStatus.FundsSecured &&
+            tx.Status != TransactionStatus.LogisticsPending)
+        {
+            logger.LogWarning("ResendSellerLink: invalid status {Status} for {Id}", tx.Status, id);
+            return BadRequest(new { error = "Can only resend while funds are secured or pending logistics" });
+        }
+
+        var sellerToken = dealTokens.GenerateSellerToken(tx.DealReference, tx.Id);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = scopeFactory.CreateScope();
+                var emailSvc = scope.ServiceProvider.GetRequiredService<EmailService>();
+                await emailSvc.SendSellerVerificationLinkAsync(tx.Seller, tx, sellerToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Resend seller link failed for {Ref}", tx.DealReference);
+            }
+        });
+
+        logger.LogInformation("ResendSellerLink: email queued for {Email}", tx.Seller.Email);
+        return Ok(new { message = $"Verification email resent to {tx.Seller.Email}" });
+    }
+
     // ── Deal-token aware caller resolution ────────────────────────────────
     // Returns the caller's user ID for a transaction, honoring both the
     // deal-token path (party -> buyer/seller ID on the tx) and the legacy
