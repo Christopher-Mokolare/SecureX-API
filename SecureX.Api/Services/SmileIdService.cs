@@ -218,14 +218,20 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
         {
             logger.LogInformation("MintTokenAsync: Starting with partnerId={PartnerId}, product={Product}, country={Country}", partnerId, product, country);
 
-            // ✅ CORRECT: SmileID /v3/token expects multipart/form-data
+            // SmileID's v3/token expects id_selection as a JSON object, not a string.
+            // Shape: { "<country>": ["<id_type>", ...] }
+            // Example: { "ZA": ["NATIONAL_ID"] }
+            var idTypeForToken = config["SmileId:IdType"] ?? "NATIONAL_ID";
+            var idSelectionJson = System.Text.Json.JsonSerializer.Serialize(
+                new Dictionary<string, string[]> { [country] = new[] { idTypeForToken } });
+
             var fields = new List<(string Name, string Value)>
             {
                 ("partner_id", partnerId),
                 ("product", product),
                 ("country", country),
-                ("id_type", config["SmileId:IdType"] ?? "NATIONAL_ID"),
-                ("id_selection", config["SmileId:IdSelection"] ?? "false")
+                ("id_type", idTypeForToken),
+                ("id_selection", idSelectionJson)
             };
 
             using var content = CreateMultipartContent(fields.ToArray());

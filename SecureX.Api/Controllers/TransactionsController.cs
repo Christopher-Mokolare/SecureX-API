@@ -253,6 +253,11 @@ public class TransactionsController(
             : tx.Seller.FullName;
         var lastName = sellerNameParts.Length > 1 ? sellerNameParts[^1] : "";
 
+        var idSelection = new Dictionary<string, string[]>
+        {
+            [country] = new[] { idType }
+        };
+
         return Ok(new
         {
             token = token,
@@ -260,6 +265,7 @@ public class TransactionsController(
             environment = isSandbox ? "sandbox" : "production",
             partnerId = config["SmileId:PartnerId"] ?? "8811",
             callbackUrl = config["SmileId:CallbackUrl"] ?? "",
+            idSelection = idSelection,
             userDetails = new
             {
                 given_names = givenNames,
@@ -567,6 +573,20 @@ public class TransactionsController(
             return Forbid();
         }
 
+        if (tx.Seller?.LivenessStatus != KycStatus.Approved)
+        {
+            logger.LogWarning("Seller verification incomplete for transaction {Id}: LivenessStatus={Status}",
+                id, tx.Seller?.LivenessStatus);
+            return StatusCode(403, new { error = "Seller verification is incomplete. Please complete biometric liveness verification before continuing." });
+        }
+
+        if (tx.Seller?.LivenessStatus != KycStatus.Approved)
+        {
+            logger.LogWarning("Seller verification incomplete for transaction {Id}: LivenessStatus={Status}",
+                id, tx.Seller?.LivenessStatus);
+            return StatusCode(403, new { error = "Seller verification is incomplete. Please complete biometric liveness verification before continuing." });
+        }
+
         if (tx.Status != TransactionStatus.LogisticsPending)
         {
             logger.LogWarning("Cannot confirm delivery: Transaction status is {Status}, expected LogisticsPending", tx.Status);
@@ -647,6 +667,20 @@ public class TransactionsController(
         {
             logger.LogWarning("Caller {UserId} is not the seller for transaction {Id}", callerUserId, id);
             return Forbid();
+        }
+
+        if (tx.Seller?.LivenessStatus != KycStatus.Approved)
+        {
+            logger.LogWarning("Seller verification incomplete for transaction {Id}: LivenessStatus={Status}",
+                id, tx.Seller?.LivenessStatus);
+            return StatusCode(403, new { error = "Seller verification is incomplete. Please complete biometric liveness verification before continuing." });
+        }
+
+        if (tx.Seller?.LivenessStatus != KycStatus.Approved)
+        {
+            logger.LogWarning("Seller verification incomplete for transaction {Id}: LivenessStatus={Status}",
+                id, tx.Seller?.LivenessStatus);
+            return StatusCode(403, new { error = "Seller verification is incomplete. Please complete biometric liveness verification before continuing." });
         }
 
         if (tx.Status != TransactionStatus.FundsSecured)
