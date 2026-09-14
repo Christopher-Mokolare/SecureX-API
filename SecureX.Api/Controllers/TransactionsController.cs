@@ -22,6 +22,7 @@ public class TransactionsController(
 
     // ── GET /api/transactions/{id} ────────────────────────────────────────────
     [HttpGet("{id:guid}")]
+    [Authorize]
     public async Task<IActionResult> GetTransaction(Guid id)
     {
         logger.LogInformation("=== GET TRANSACTION ===");
@@ -44,13 +45,16 @@ public class TransactionsController(
 
         // Check if user has access (buyer or seller)
         var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!string.IsNullOrEmpty(userIdClaim) && Guid.TryParse(userIdClaim, out var userId))
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
         {
-            if (tx.BuyerId != userId && tx.SellerId != userId && !User.IsInRole("Admin"))
-            {
-                logger.LogWarning("Unauthorized access to transaction {Id} by user {UserId}", id, userId);
-                return Forbid();
-            }
+            logger.LogWarning("GetTransaction: missing/invalid user claim for {Id}", id);
+            return Unauthorized(new { error = "Invalid user" });
+        }
+
+        if (tx.BuyerId != userId && tx.SellerId != userId && !User.IsInRole("Admin"))
+        {
+            logger.LogWarning("Unauthorized access to transaction {Id} by user {UserId}", id, userId);
+            return Forbid();
         }
 
         var response = new
@@ -69,6 +73,52 @@ public class TransactionsController(
 
         logger.LogInformation("Transaction details returned for: {DealReference}", tx.DealReference);
         return Ok(response);
+    }
+
+    // ── GET /api/transactions/ref/{dealReference} ─────────────────────────────
+    [HttpGet("ref/{dealReference}")]
+    [Authorize]
+    public async Task<IActionResult> GetTransactionByRef(string dealReference)
+    {
+        logger.LogInformation("=== GET TRANSACTION BY REF ===");
+        logger.LogInformation("DealReference: {Ref}", dealReference);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
+        var tx = await db.Transactions
+            .Include(t => t.Buyer)
+            .Include(t => t.Seller)
+            .Include(t => t.AuditLogs)
+            .FirstOrDefaultAsync(t => t.DealReference == dealReference);
+
+        if (tx is null)
+        {
+            logger.LogWarning("Transaction not found for ref: {Ref}", dealReference);
+            return NotFound(new { error = "Transaction not found" });
+        }
+
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized(new { error = "Invalid user" });
+
+        if (tx.BuyerId != userId && tx.SellerId != userId && !User.IsInRole("Admin"))
+        {
+            logger.LogWarning("Unauthorized access to {Ref} by user {UserId}", dealReference, userId);
+            return Forbid();
+        }
+
+        return Ok(new
+        {
+            transaction = MapTransaction(tx),
+            auditLog = tx.AuditLogs.OrderBy(a => a.Timestamp).Select(a => new
+            {
+                a.Id,
+                PreviousStatus = a.PreviousStatus?.ToString(),
+                NewStatus = a.NewStatus.ToString(),
+                a.TriggerActor,
+                a.ActionDetails,
+                a.Timestamp,
+            })
+        });
     }
 
     // ── POST /api/transactions ─────────────────────────────────────────────────
