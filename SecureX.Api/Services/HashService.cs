@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -18,6 +19,7 @@ public class HashService
     {
         var aBytes = Encoding.UTF8.GetBytes(a);
         var bBytes = Encoding.UTF8.GetBytes(b);
+
         return CryptographicOperations.FixedTimeEquals(aBytes, bBytes);
     }
 
@@ -26,65 +28,169 @@ public class HashService
     public bool VerifyPayoutHash(PayoutVerifyRequest req, string apiKey)
     {
         var cents = (long)Math.Round(req.Amount * 100);
-        var input = string.Concat(
-            req.PayoutId, req.SiteCode, cents,
-            req.MerchantReference, req.CustomerBankReference,
-            req.IsRtc.ToString().ToLowerInvariant(), req.NotifyUrl,
-            req.BankingDetails?.BankGroupId, req.BankingDetails?.AccountNumber,
-            req.BankingDetails?.BranchCode, apiKey);
 
-        return FixedTimeEqual(Sha512Lower(input), req.HashCheck.ToLowerInvariant());
+        var input = string.Concat(
+            req.PayoutId,
+            req.SiteCode,
+            cents,
+            req.MerchantReference,
+            req.CustomerBankReference,
+            req.IsRtc.ToString().ToLowerInvariant(),
+            req.NotifyUrl,
+            req.BankingDetails?.BankGroupId,
+            req.BankingDetails?.AccountNumber,
+            req.BankingDetails?.BranchCode,
+            apiKey);
+
+        return FixedTimeEqual(
+            Sha512Lower(input),
+            req.HashCheck.ToLowerInvariant());
     }
 
     // ── Verify payout-notification webhook ───────────────────────────────────
 
-    public bool VerifyNotificationHash(PayoutNotificationRequest req, string apiKey,
-        out int status, out int subStatus)
+    public bool VerifyNotificationHash(
+        PayoutNotificationRequest req,
+        string apiKey,
+        out int status,
+        out int subStatus)
     {
         (status, subStatus) = ReadStatus(req);
 
         var input = string.Concat(
-            req.PayoutId, req.SiteCode,
-            req.MerchantReference, req.CustomerMerchantReference,
-            status, subStatus, apiKey);
+            req.PayoutId,
+            req.SiteCode,
+            req.MerchantReference,
+            req.CustomerMerchantReference,
+            status,
+            subStatus,
+            apiKey);
 
-        return FixedTimeEqual(Sha512Lower(input), req.HashCheck.ToLowerInvariant());
+        return FixedTimeEqual(
+            Sha512Lower(input),
+            req.HashCheck.ToLowerInvariant());
     }
 
-    // ── Verify standard payment-notification webhook ────────────────────────
-    // SHA-512(siteCode + transactionReference + smartReference + status + privateKey)
+    // ── Verify Payments API payment-notification webhook ─────────────────────
+    //
+    // Ozow Payments API notification hash:
+    //
+    // SiteCode
+    // TransactionId
+    // TransactionReference
+    // Amount (exactly two decimals)
+    // Status
+    // Optional1
+    // Optional2
+    // Optional3
+    // Optional4
+    // Optional5
+    // CurrencyCode
+    // IsTest
+    // StatusMessage
+    // PrivateKey
+    //
+    // Empty optional fields are omitted.
 
-    public bool VerifyPaymentNotificationHash(string siteCode, string transactionRef,
-        string smartRef, string status, string privateKey, string hashCheck)
+    public bool VerifyPaymentNotificationHash(
+        string siteCode,
+        string transactionId,
+        string transactionReference,
+        string amount,
+        string status,
+        string? optional1,
+        string? optional2,
+        string? optional3,
+        string? optional4,
+        string? optional5,
+        string currencyCode,
+        string isTest,
+        string statusMessage,
+        string privateKey,
+        string hashCheck)
     {
-        var input = string.Concat(siteCode, transactionRef, smartRef, status, privateKey);
-        return FixedTimeEqual(Sha512Lower(input), hashCheck.ToLowerInvariant());
+        if (!decimal.TryParse(
+                amount,
+                NumberStyles.Number,
+                CultureInfo.InvariantCulture,
+                out var parsedAmount))
+        {
+            return false;
+        }
+
+        var normalizedAmount = parsedAmount.ToString(
+            "0.00",
+            CultureInfo.InvariantCulture);
+
+        var input = string.Concat(
+            siteCode,
+            transactionId,
+            transactionReference,
+            normalizedAmount,
+            status,
+            optional1 ?? "",
+            optional2 ?? "",
+            optional3 ?? "",
+            optional4 ?? "",
+            optional5 ?? "",
+            currencyCode,
+            isTest,
+            statusMessage,
+            privateKey);
+
+        return FixedTimeEqual(
+            Sha512Lower(input),
+            hashCheck.Trim().ToLowerInvariant());
     }
 
-    public static (int status, int subStatus) ReadStatus(PayoutNotificationRequest req)
+    public static (int status, int subStatus) ReadStatus(
+        PayoutNotificationRequest req)
     {
         int s = 0;
         int ss = req.PayoutSubStatus ?? req.SubStatus ?? 0;
+
         if (req.PayoutStatus is JsonElement el)
         {
-            if (el.ValueKind == JsonValueKind.Number) s = el.GetInt32();
+            if (el.ValueKind == JsonValueKind.Number)
+            {
+                s = el.GetInt32();
+            }
             else if (el.ValueKind == JsonValueKind.Object)
             {
-                if (TryGetPropertyIgnoreCase(el, "status", out var sp) && sp.ValueKind == JsonValueKind.Number)
+                if (TryGetPropertyIgnoreCase(
+                        el,
+                        "status",
+                        out var sp) &&
+                    sp.ValueKind == JsonValueKind.Number)
+                {
                     s = sp.GetInt32();
-                if (TryGetPropertyIgnoreCase(el, "subStatus", out var ssp) && ssp.ValueKind == JsonValueKind.Number)
+                }
+
+                if (TryGetPropertyIgnoreCase(
+                        el,
+                        "subStatus",
+                        out var ssp) &&
+                    ssp.ValueKind == JsonValueKind.Number)
+                {
                     ss = ssp.GetInt32();
+                }
             }
-            // string like "Complete" — leave as 0, hash will fail and be rejected
         }
+
         return (s, ss);
     }
 
-    private static bool TryGetPropertyIgnoreCase(JsonElement element, string name, out JsonElement value)
+    private static bool TryGetPropertyIgnoreCase(
+        JsonElement element,
+        string name,
+        out JsonElement value)
     {
         foreach (var property in element.EnumerateObject())
         {
-            if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(
+                    property.Name,
+                    name,
+                    StringComparison.OrdinalIgnoreCase))
             {
                 value = property.Value;
                 return true;
