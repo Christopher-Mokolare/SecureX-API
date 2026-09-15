@@ -83,7 +83,7 @@ public class TransactionService(
             }
         }
 
-        return await smileId.CreateDocumentVerificationTokenAsync();
+        return await smileId.CreateWebSdkTokenAsync();
     }
 
     // ── Step 3: Create transaction ───────────────────────────────────────────

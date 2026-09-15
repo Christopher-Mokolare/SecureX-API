@@ -27,11 +27,13 @@ builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServe
     o.AllowSynchronousIO = true);
 
 // Disable file watchers before any config sources are built — prevents inotify exhaustion on Render
+#pragma warning disable ASP0013 // Intentional: disable file watchers before configuration is built.
 builder.Host.ConfigureAppConfiguration((_, config) =>
 {
     foreach (var s in config.Sources.OfType<Microsoft.Extensions.Configuration.FileConfigurationSource>())
         s.ReloadOnChange = false;
 });
+#pragma warning restore ASP0013
 
 // ── Config from env vars (override appsettings) ──────────────────────────────
 builder.Configuration.AddEnvironmentVariables();

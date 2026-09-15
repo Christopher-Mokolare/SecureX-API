@@ -94,7 +94,22 @@ public class UsersController(
             return BadRequest(new { error = "Transaction has no seller" });
         }
 
-        var user = tx.Seller;
+        var user = tx.Seller!;
+
+        if (string.IsNullOrWhiteSpace(req.AccountNumber) ||
+            string.IsNullOrWhiteSpace(req.BranchCode) ||
+            string.IsNullOrWhiteSpace(req.BankGroupId) ||
+            string.IsNullOrWhiteSpace(req.IdNumber))
+        {
+            logger.LogWarning(
+                "UpdateBankDetails: incomplete bank details for transaction {TxId}",
+                dealClaims.TxId);
+
+            return BadRequest(new
+            {
+                error = "Account number, branch code, bank, and ID number are required"
+            });
+        }
 
         user.BankAccountNumber = req.AccountNumber;
         user.BankBranchCode = req.BranchCode;
