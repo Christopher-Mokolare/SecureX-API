@@ -105,7 +105,7 @@ public class HashService
         string? optional5,
         string currencyCode,
         string isTest,
-        string statusMessage,
+        string? statusMessage,
         string privateKey,
         string hashCheck)
     {
@@ -135,7 +135,7 @@ public class HashService
             optional5 ?? "",
             currencyCode,
             isTest,
-            statusMessage,
+            statusMessage ?? "",
             privateKey);
 
         return FixedTimeEqual(

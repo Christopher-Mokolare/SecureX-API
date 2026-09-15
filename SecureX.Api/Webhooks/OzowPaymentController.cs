@@ -111,8 +111,7 @@ public class OzowPaymentController(
         if (string.IsNullOrWhiteSpace(transactionId) ||
             string.IsNullOrWhiteSpace(amount) ||
             string.IsNullOrWhiteSpace(currencyCode) ||
-            string.IsNullOrWhiteSpace(isTest) ||
-            string.IsNullOrWhiteSpace(statusMessage))
+            string.IsNullOrWhiteSpace(isTest))
         {
             logger.LogWarning(
                 "[OzowPayment] rejected notification because required hash fields are missing. Ref={Ref}",
