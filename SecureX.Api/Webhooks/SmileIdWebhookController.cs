@@ -22,9 +22,17 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
         using (var reader = new System.IO.StreamReader(Request.Body))
             body = await reader.ReadToEndAsync();
 
+        logger.LogInformation("[SmileIDWebhook] raw payload len={Len} body={Body}",
+            body.Length,
+            body.Length > 4000 ? body[..4000] + "...[truncated]" : body);
+
         JsonElement payload;
         try { payload = JsonSerializer.Deserialize<JsonElement>(body, _json); }
-        catch (JsonException) { return BadRequest(); }
+        catch (JsonException ex)
+        {
+            logger.LogWarning(ex, "[SmileIDWebhook] payload is not valid JSON");
+            return BadRequest();
+        }
 
         var signature = Request.Headers["Response-Signature"].FirstOrDefault() ?? "";
         var timestamp = Request.Headers["Response-Timestamp"].FirstOrDefault() ?? "";

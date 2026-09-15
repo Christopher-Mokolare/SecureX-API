@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SecureX.Api.Data;
 using SecureX.Api.Models;
+using SecureX.Api.Security;
 using SecureX.Api.Services;
 using System.Security.Claims;
 
@@ -56,25 +57,44 @@ public class UsersController(
 
     // ── POST /api/users/bank-details ──────────────────────────────────────────
     [HttpPost("bank-details")]
-    [Authorize]
+    [DealToken("seller")]
     public async Task<IActionResult> UpdateBankDetails([FromBody] BankDetailsRequest req)
     {
         logger.LogInformation("=== UPDATE BANK DETAILS ===");
         logger.LogInformation("Caller: {Caller}", CallerEmail);
+        logger.LogInformation(
+            "Bank details request shape: accountLen={AccountLen} branchLen={BranchLen} bank={Bank} hasId={HasId}",
+            req.AccountNumber?.Length ?? 0,
+            req.BranchCode?.Length ?? 0,
+            req.BankGroupId ?? "(null)",
+            !string.IsNullOrWhiteSpace(req.IdNumber));
 
-        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        // Deal-token path: seller is identified by the token's transaction.
+        var dealClaims = DealTokenAttribute.GetClaims(HttpContext);
+        if (dealClaims is null)
         {
-            logger.LogWarning("Unauthorized: No valid user ID in token");
+            logger.LogWarning("UpdateBankDetails: no deal claims present");
             return Unauthorized(new { error = "Invalid user" });
         }
 
-        var user = await db.Users.FindAsync(userId);
-        if (user is null)
+        var tx = await db.Transactions
+            .Include(t => t.Seller)
+            .FirstOrDefaultAsync(t => t.Id == dealClaims.TxId);
+
+        if (tx?.Seller is null)
         {
-            logger.LogWarning("User not found: {UserId}", userId);
-            return NotFound(new { error = "User not found" });
+            logger.LogWarning("UpdateBankDetails: transaction or seller not found for {TxId}", dealClaims.TxId);
+            return NotFound(new { error = "Transaction or seller not found" });
         }
+
+        // Guard: token must be for the seller of this transaction
+        if (tx.SellerId == Guid.Empty)
+        {
+            logger.LogWarning("UpdateBankDetails: transaction {TxId} has no seller", dealClaims.TxId);
+            return BadRequest(new { error = "Transaction has no seller" });
+        }
+
+        var user = tx.Seller;
 
         user.BankAccountNumber = req.AccountNumber;
         user.BankBranchCode = req.BranchCode;
@@ -85,7 +105,7 @@ public class UsersController(
 
         await db.SaveChangesAsync();
 
-        logger.LogInformation("Bank details updated for user: {UserId}", userId);
+        logger.LogInformation("Bank details updated for user: {UserId}", user.Id);
 
         return Ok(new { message = "Bank details updated successfully" });
     }
@@ -235,7 +255,15 @@ public class UsersController(
     [AllowAnonymous]
     public async Task<IActionResult> GetBanks()
     {
+        logger.LogInformation("=== GET BANKS ===");
+
         var banks = await ozow.GetBanksAsync();
+
+        if (banks.Count == 0)
+            logger.LogWarning("[GetBanks] Ozow returned 0 banks");
+        else
+            logger.LogInformation("[GetBanks] returned {Count} banks", banks.Count);
+
         return Ok(banks);
     }
 }

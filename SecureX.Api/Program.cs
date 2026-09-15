@@ -190,6 +190,7 @@ app.Use(async (ctx, next) =>
 });
 app.UseMiddleware<AccessTokenMiddleware>();
 app.UseCors();
+app.UseMiddleware<SecureX.Api.Middleware.RequestLoggingMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 

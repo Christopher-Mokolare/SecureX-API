@@ -38,6 +38,25 @@ public sealed class DealTokenAttribute : Attribute, IAsyncAuthorizationFilter
 
     private readonly string[] _expectedParties;
 
+    // Static logger — attributes are instantiated per-request by the framework,
+    // so we can't constructor-inject. Use ILoggerFactory from DI at filter time
+    // or fall back to a static factory. Easiest: fetch via HttpContext.RequestServices
+    // inside OnAuthorizationAsync.
+    private static void Log(
+        HttpContext http,
+        LogLevel level,
+        string message,
+        params object?[] args)
+    {
+        try
+        {
+            var factory = http.RequestServices.GetService<ILoggerFactory>();
+            var logger = factory?.CreateLogger("SecureX.Api.Security.DealToken");
+            logger?.Log(level, message, args);
+        }
+        catch { /* logging must never break the request */ }
+    }
+
     public DealTokenAttribute(params string[] expectedParties)
     {
         if (expectedParties is null || expectedParties.Length == 0)
@@ -82,6 +101,10 @@ public sealed class DealTokenAttribute : Attribute, IAsyncAuthorizationFilter
             }
 
             http.Items[ItemKey] = claims;
+            Log(http, LogLevel.Information,
+                "[DealTokenAccepted] {Method} {Path} | party={Party} dealRef={DealRef}",
+                http.Request.Method, http.Request.Path.Value ?? "",
+                claims.Party, claims.DealRef);
             return Task.CompletedTask;
         }
 
@@ -92,6 +115,9 @@ public sealed class DealTokenAttribute : Attribute, IAsyncAuthorizationFilter
         if (!string.IsNullOrEmpty(userIdClaim) && Guid.TryParse(userIdClaim, out _))
         {
             http.Items[LegacyJwtKey] = true;
+            Log(http, LogLevel.Information,
+                "[DealTokenLegacyJwtAccepted] {Method} {Path} | userId={UserId}",
+                http.Request.Method, http.Request.Path.Value ?? "", userIdClaim);
             return Task.CompletedTask;
         }
 
@@ -102,6 +128,12 @@ public sealed class DealTokenAttribute : Attribute, IAsyncAuthorizationFilter
 
     private static void Reject(AuthorizationFilterContext ctx, int status, string message)
     {
+        Log(ctx.HttpContext, LogLevel.Warning,
+            "[DealTokenRejected] {Method} {Path} -> {Status} | reason={Reason}",
+            ctx.HttpContext.Request.Method,
+            ctx.HttpContext.Request.Path.Value ?? "",
+            status,
+            message);
         ctx.Result = new ObjectResult(new { error = message }) { StatusCode = status };
     }
 

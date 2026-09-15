@@ -23,8 +23,14 @@ public class OzowPaymentController(
         var status    = body.TryGetProperty("Status", out var s) ? s.GetString() : null;
         var hashCheck = body.TryGetProperty("Hash", out var h) ? h.GetString() : null;
 
+        logger.LogInformation("[OzowPayment] received notification: Ref={Ref} Status={Status}",
+            txRef ?? "(null)", status ?? "(null)");
+
         if (string.IsNullOrEmpty(txRef) || string.IsNullOrEmpty(status))
+        {
+            logger.LogWarning("[OzowPayment] missing txRef or status; ignoring");
             return Ok();
+        }
 
         var privateKey       = config["Ozow:PrivateKey"]!;
         var resolvedSiteCode = siteCode ?? config["Ozow:SiteCode"]!;
@@ -39,7 +45,9 @@ public class OzowPaymentController(
             if (string.IsNullOrEmpty(hashCheck)) return Ok();
             if (!hash.VerifyPaymentNotificationHash(resolvedSiteCode, txRef, smartRef, status, privateKey, hashCheck))
             {
-                logger.LogWarning("Payment notification hash invalid. Ref={Ref}", txRef);
+                logger.LogWarning(
+                    "[OzowPayment] hash verification failed. Ref={Ref} Status={Status} hashLen={HashLen}",
+                    txRef, status, hashCheck?.Length ?? 0);
                 return Ok();
             }
         }
