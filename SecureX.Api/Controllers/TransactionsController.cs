@@ -244,7 +244,7 @@ public class TransactionsController(
         }
 
         var isSandbox = (config["SmileId:BaseUrl"] ?? "").Contains("testapi", StringComparison.OrdinalIgnoreCase);
-        var product   = "document_verification";
+        var product   = "enhanced_document_verification";
         var country   = config["SmileId:Country"]          ?? "ZA";
         var idType    = config["SmileId:IdType"]           ?? "NATIONAL_ID";
         var sandboxId = config["SmileId:SandboxIdNumber"]  ?? "0000000000000";
@@ -281,7 +281,7 @@ public class TransactionsController(
             {
                 internal_reference = tx.Id.ToString(),
                 deal_reference = tx.DealReference,
-                verification_type = "seller_document_verification",
+                verification_type = "seller_enhanced_document_verification",
             }
         });
     }

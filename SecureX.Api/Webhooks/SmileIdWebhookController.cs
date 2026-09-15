@@ -117,7 +117,7 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
             return Ok();
         }
 
-        if (verificationType == "seller_document_verification")
+        if (verificationType == "seller_enhanced_document_verification")
         {
             var sellerTx = Guid.TryParse(internalReference, out var sellerTxId)
                 ? await db.Transactions.Include(t => t.Seller).FirstOrDefaultAsync(t => t.Id == sellerTxId)

@@ -24,7 +24,7 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             return null;
         }
 
-        return await MintTokenAsync(partnerId, apiKey, baseUrl, product: "document_verification");
+        return await MintTokenAsync(partnerId, apiKey, baseUrl, product: "enhanced_document_verification");
     }
 
     public async Task<string?> CreateBiometricKycTokenAsync()
