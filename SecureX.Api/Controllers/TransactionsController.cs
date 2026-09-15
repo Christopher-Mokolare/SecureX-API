@@ -244,7 +244,7 @@ public class TransactionsController(
         }
 
         var isSandbox = (config["SmileId:BaseUrl"] ?? "").Contains("testapi", StringComparison.OrdinalIgnoreCase);
-        var product   = "enhanced_document_verification";
+        var product = config["SmileId:BiometricProduct"] ?? "biometric_kyc";
         var country   = config["SmileId:Country"]          ?? "ZA";
         var idType    = config["SmileId:IdType"]           ?? "NATIONAL_ID";
         var sandboxId = config["SmileId:SandboxIdNumber"]  ?? "0000000000000";
@@ -254,11 +254,11 @@ public class TransactionsController(
             : tx.Seller.FullName;
         var lastName = sellerNameParts.Length > 1 ? sellerNameParts[^1] : "";
 
-        // Document verification for ZA uses NATIONAL_ID_NO_PHOTO (upload an ID card photo).
-        var docVerifyIdType = "NATIONAL_ID_NO_PHOTO";
+        // Biometric KYC for ZA uses NATIONAL_ID.
+        var biometricIdType = config["SmileId:IdType"] ?? "NATIONAL_ID";
         var idSelection = new Dictionary<string, string[]>
         {
-            [country] = new[] { docVerifyIdType }
+            [country] = new[] { biometricIdType }
         };
 
         return Ok(new
@@ -281,7 +281,7 @@ public class TransactionsController(
             {
                 internal_reference = tx.Id.ToString(),
                 deal_reference = tx.DealReference,
-                verification_type = "seller_enhanced_document_verification",
+                verification_type = "seller_biometric_kyc",
             }
         });
     }

@@ -117,7 +117,7 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
             return Ok();
         }
 
-        if (verificationType == "seller_enhanced_document_verification")
+        if (verificationType == "seller_biometric_kyc")
         {
             var sellerTx = Guid.TryParse(internalReference, out var sellerTxId)
                 ? await db.Transactions.Include(t => t.Seller).FirstOrDefaultAsync(t => t.Id == sellerTxId)
@@ -135,25 +135,32 @@ public class SmileIdWebhookController(AppDbContext db, SmileIdService smileId, I
             {
                 case "clear":
                     sellerTx.Seller.IdCheckStatus = KycStatus.Approved;
-                    logger.LogInformation("SmileID doc-verification clear for deal {Ref}",
+                    sellerTx.Seller.LivenessStatus = KycStatus.Approved;
+                    logger.LogInformation("SmileID biometric KYC clear for deal {Ref}",
                         dealReference?.Replace("\n", "").Replace("\r", ""));
                     break;
+
                 case "attention":
                     sellerTx.Seller.IdCheckStatus = KycStatus.Approved;
-                    logger.LogInformation("SmileID doc-verification attention (approved with flags) for deal {Ref}",
+                    sellerTx.Seller.LivenessStatus = KycStatus.Approved;
+                    logger.LogInformation("SmileID biometric KYC attention (approved with flags) for deal {Ref}",
                         dealReference?.Replace("\n", "").Replace("\r", ""));
                     break;
+
                 case "block":
                     sellerTx.Seller.IdCheckStatus = KycStatus.Failed;
-                    logger.LogWarning("SmileID doc-verification blocked for deal {Ref}",
+                    sellerTx.Seller.LivenessStatus = KycStatus.Failed;
+                    logger.LogWarning("SmileID biometric KYC blocked for deal {Ref}",
                         dealReference?.Replace("\n", "").Replace("\r", ""));
                     break;
+
                 case "error":
-                    logger.LogError("SmileID doc-verification error for deal {Ref} — status stays Pending",
+                    logger.LogError("SmileID biometric KYC error for deal {Ref} — status stays Pending",
                         dealReference?.Replace("\n", "").Replace("\r", ""));
                     return Ok();
+
                 default:
-                    logger.LogWarning("SmileID doc-verification unknown status '{Status}'",
+                    logger.LogWarning("SmileID biometric KYC unknown status '{Status}'",
                         status?.Replace("\n", "").Replace("\r", ""));
                     return Ok();
             }

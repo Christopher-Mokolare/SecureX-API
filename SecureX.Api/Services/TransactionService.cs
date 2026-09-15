@@ -83,7 +83,7 @@ public class TransactionService(
             }
         }
 
-        return await smileId.CreateWebSdkTokenAsync();
+        return await smileId.CreateBiometricKycTokenAsync();
     }
 
     // ── Step 3: Create transaction ───────────────────────────────────────────

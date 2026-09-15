@@ -56,7 +56,16 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
         }
 
         var product = config["SmileId:BiometricProduct"] ?? "biometric_kyc";
-        return await MintTokenAsync(partnerId, apiKey, baseUrl, product: product);
+        var country = config["SmileId:Country"] ?? "ZA";
+        var idType = config["SmileId:IdType"] ?? "NATIONAL_ID";
+
+        return await MintTokenAsync(
+            partnerId,
+            apiKey,
+            baseUrl,
+            product: product,
+            country: country,
+            idType: idType);
     }
 
     public async Task<string?> SubmitEnhancedKycAsync(
@@ -246,8 +255,13 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
         }
     }
 
-    private async Task<string?> MintTokenAsync(string partnerId, string apiKey, string baseUrl,
-        string product, string country = "ZA")
+    private async Task<string?> MintTokenAsync(
+        string partnerId,
+        string apiKey,
+        string baseUrl,
+        string product,
+        string country = "ZA",
+        string? idType = null)
     {
         try
         {
@@ -259,7 +273,9 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             // Seller Document Verification uses the South African ID-card
             // document type. This is intentionally different from the
             // biometric KYC NATIONAL_ID value.
-            var idTypeForToken = config["SmileId:DocumentIdType"] ?? "NATIONAL_ID_NO_PHOTO";
+            var idTypeForToken = idType
+                ?? config["SmileId:DocumentIdType"]
+                ?? "NATIONAL_ID_NO_PHOTO";
 
             var idSelectionJson = System.Text.Json.JsonSerializer.Serialize(
                 new Dictionary<string, string[]> { [country] = new[] { idTypeForToken } });
