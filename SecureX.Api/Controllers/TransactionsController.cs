@@ -244,7 +244,7 @@ public class TransactionsController(
         }
 
         var isSandbox = (config["SmileId:BaseUrl"] ?? "").Contains("testapi", StringComparison.OrdinalIgnoreCase);
-        var product   = "doc_verification";
+        var product   = "document_verification";
         var country   = config["SmileId:Country"]          ?? "ZA";
         var idType    = config["SmileId:IdType"]           ?? "NATIONAL_ID";
         var sandboxId = config["SmileId:SandboxIdNumber"]  ?? "0000000000000";
