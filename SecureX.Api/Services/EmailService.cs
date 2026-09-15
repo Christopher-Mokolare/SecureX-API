@@ -34,7 +34,11 @@ public class EmailService(
     /// </summary>
     public async Task SendSellerVerificationLinkAsync(User seller, Transaction tx, string dealToken)
     {
-        var url = $"{_frontendBase}/bank-details/{seller.Id}?t={Uri.EscapeDataString(dealToken)}";
+        var url = $"{_frontendBase}/bank-details/{seller.Id}"
+                  + $"?t={Uri.EscapeDataString(dealToken)}"
+                  + $"&txId={tx.Id}"
+                  + $"&ref={Uri.EscapeDataString(tx.DealReference)}"
+                  + $"&email={Uri.EscapeDataString(seller.Email)}";
         var payout = tx.ItemValue - tx.SellerFee;
         var firstName = FirstName(seller.FullName);
 
