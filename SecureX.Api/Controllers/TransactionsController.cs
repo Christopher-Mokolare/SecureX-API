@@ -582,11 +582,19 @@ public class TransactionsController(
             return Forbid();
         }
 
-        if (tx.Seller?.IdCheckStatus != KycStatus.Approved)
+        if (tx.Seller?.IdCheckStatus != KycStatus.Approved ||
+            tx.Seller?.LivenessStatus != KycStatus.Approved)
         {
-            logger.LogWarning("Seller verification incomplete for transaction {Id}: IdCheckStatus={Status}",
-                id, tx.Seller?.IdCheckStatus);
-            return StatusCode(403, new { error = "Seller verification is incomplete. Please complete ID verification before continuing." });
+            logger.LogWarning(
+                "Seller verification incomplete for transaction {Id}: IdCheckStatus={IdStatus}, LivenessStatus={LivenessStatus}",
+                id,
+                tx.Seller?.IdCheckStatus,
+                tx.Seller?.LivenessStatus);
+
+            return StatusCode(403, new
+            {
+                error = "Seller verification is incomplete. Please complete identity and liveness verification before continuing."
+            });
         }
 
         if (tx.Status != TransactionStatus.LogisticsPending)
@@ -671,11 +679,19 @@ public class TransactionsController(
             return Forbid();
         }
 
-        if (tx.Seller?.IdCheckStatus != KycStatus.Approved)
+        if (tx.Seller?.IdCheckStatus != KycStatus.Approved ||
+            tx.Seller?.LivenessStatus != KycStatus.Approved)
         {
-            logger.LogWarning("Seller verification incomplete for transaction {Id}: IdCheckStatus={Status}",
-                id, tx.Seller?.IdCheckStatus);
-            return StatusCode(403, new { error = "Seller verification is incomplete. Please complete ID verification before continuing." });
+            logger.LogWarning(
+                "Seller verification incomplete for transaction {Id}: IdCheckStatus={IdStatus}, LivenessStatus={LivenessStatus}",
+                id,
+                tx.Seller?.IdCheckStatus,
+                tx.Seller?.LivenessStatus);
+
+            return StatusCode(403, new
+            {
+                error = "Seller verification is incomplete. Please complete identity and liveness verification before continuing."
+            });
         }
 
         if (tx.Status != TransactionStatus.FundsSecured)

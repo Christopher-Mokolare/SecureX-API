@@ -90,7 +90,8 @@ public class OzowPaymentController(
                         }
                         if (tx?.Buyer is not null)
                         {
-                            await emailSvc.SendEscrowFundedAsync(tx.Buyer, tx);
+                            var buyerToken = dealTokens.GenerateBuyerToken(tx.DealReference, tx.Id);
+                            await emailSvc.SendEscrowFundedAsync(tx.Buyer, tx, buyerToken);
                         }
                     }
                     catch (Exception ex)

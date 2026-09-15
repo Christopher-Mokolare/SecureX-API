@@ -53,12 +53,17 @@ public class EmailService(
     /// Sent to the buyer as confirmation that payment cleared and the seller
     /// has been notified.
     /// </summary>
-    public async Task SendEscrowFundedAsync(User buyer, Transaction tx)
+    public async Task SendEscrowFundedAsync(User buyer, Transaction tx, string dealToken)
     {
         var firstName = FirstName(buyer.FullName);
+        var buyerUrl = $"{_frontendBase}/transaction/{tx.Id}/buyer"
+                       + $"?t={Uri.EscapeDataString(dealToken)}"
+                       + $"&ref={Uri.EscapeDataString(tx.DealReference)}"
+                       + $"&email={Uri.EscapeDataString(buyer.Email)}";
+
         var subject = $"Escrow funded — {tx.DealReference}";
-        var html = EscrowFundedHtml(firstName, tx);
-        var text = EscrowFundedText(firstName, tx);
+        var html = EscrowFundedHtml(firstName, tx, buyerUrl);
+        var text = EscrowFundedText(firstName, tx, buyerUrl);
 
         await SendAsync(buyer.Email, subject, html, text);
     }
@@ -231,7 +236,7 @@ Questions? Reply to this email.
 — SecureX
 {_frontendBase}";
 
-    private string EscrowFundedHtml(string firstName, Transaction tx) => WrapHtml(
+    private string EscrowFundedHtml(string firstName, Transaction tx, string buyerUrl) => WrapHtml(
         $"Escrow funded — {tx.DealReference}",
         $@"<h1 style=""margin:0 0 16px;font-size:22px;color:#0f172a;"">Hello {Escape(firstName)},</h1>
 
@@ -255,12 +260,18 @@ Questions? Reply to this email.
   <li>Once delivered, you have 24 hours to inspect and accept</li>
 </ul>
 
-<p style=""margin:24px 0 0;font-size:13px;line-height:1.6;color:#64748b;"">
-  Track your deal anytime from your buyer portal. Reply to this email if you have questions.
+<p style=""margin:24px 0 12px;font-size:15px;line-height:1.6;color:#334155;"">
+  <a href=""{Escape(buyerUrl)}"" style=""display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600;"">
+    Open Your Buyer Portal
+  </a>
+</p>
+
+<p style=""margin:12px 0 0;font-size:13px;line-height:1.6;color:#64748b;"">
+  You can use your buyer portal to track this deal and review updates. Reply to this email if you have questions.
 </p>"
     );
 
-    private string EscrowFundedText(string firstName, Transaction tx) =>
+    private string EscrowFundedText(string firstName, Transaction tx, string buyerUrl) =>
         $@"Hello {firstName},
 
 Your payment has been received and is now held securely in escrow.
@@ -276,6 +287,9 @@ What happens next:
 - The seller verifies their identity and arranges shipping
 - You'll be notified when the item is on its way
 - Once delivered, you have 24 hours to inspect and accept
+
+Buyer portal:
+{buyerUrl}
 
 — SecureX
 {_frontendBase}";
