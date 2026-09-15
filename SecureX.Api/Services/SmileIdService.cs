@@ -9,8 +9,8 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
     public sealed record AmlResult(string JobId, string ResultCode);
 
     /// <summary>
-    /// Mints a v3 token for the document-verification product.
-    /// The seller uploads a photo of their SA ID card instead of doing a selfie.
+    /// Mints a v3 token for the enhanced document-verification product.
+    /// The seller uploads a photo of their South African ID card.
     /// </summary>
     public async Task<string?> CreateWebSdkTokenAsync()
     {
@@ -24,88 +24,23 @@ public class SmileIdService(IHttpClientFactory httpFactory, IConfiguration confi
             return null;
         }
 
-        return await MintDocumentVerificationTokenAsync(partnerId, apiKey, baseUrl);
+        var product = config["SmileId:DocumentProduct"]
+            ?? "enhanced_document_verification";
+
+        var country = config["SmileId:Country"] ?? "ZA";
+
+        return await MintTokenAsync(
+            partnerId,
+            apiKey,
+            baseUrl,
+            product: product,
+            country: country);
     }
 
     // Kept as a compatibility wrapper for any existing callers.
     public async Task<string?> CreateDocumentVerificationTokenAsync()
     {
         return await CreateWebSdkTokenAsync();
-    }
-
-    /// <summary>
-    /// Mints a v3 token for Document Verification using the same
-    /// Smile Web SDK v12 demo.
-    /// </summary>
-    private async Task<string?> MintDocumentVerificationTokenAsync(
-        string partnerId,
-        string apiKey,
-        string baseUrl)
-    {
-        try
-        {
-            logger.LogInformation(
-                "MintDocumentVerificationTokenAsync: Starting with partnerId={PartnerId}",
-                partnerId);
-
-            using var form = new MultipartFormDataContent();
-
-            using var request = new HttpRequestMessage(
-                HttpMethod.Post,
-                $"{baseUrl}/v3/token")
-            {
-                Content = form
-            };
-
-            request.Headers.Add("SmileID-Api-Key", apiKey);
-            request.Headers.Add("SmileID-Partner-ID", partnerId);
-            request.Headers.Add("User-Agent", "smile-sdk-demo");
-
-            logger.LogInformation(
-                "MintDocumentVerificationTokenAsync: Sending request to {Url}",
-                $"{baseUrl}/v3/token");
-
-            var response = await httpFactory
-                .CreateClient("SmileId")
-                .SendAsync(request);
-
-            var body = await response.Content.ReadAsStringAsync();
-
-            logger.LogInformation(
-                "MintDocumentVerificationTokenAsync: Response status={Status}",
-                response.StatusCode);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                logger.LogError(
-                    "SmileID document verification token request rejected {Status}: {Body}",
-                    response.StatusCode,
-                    body.Replace("\n", "").Replace("\r", ""));
-
-                return null;
-            }
-
-            var result = JsonSerializer.Deserialize<JsonElement>(body);
-
-            if (result.TryGetProperty("token", out var token) &&
-                !string.IsNullOrWhiteSpace(token.GetString()))
-            {
-                return token.GetString();
-            }
-
-            logger.LogError(
-                "SmileID document verification token response did not contain a token");
-
-            return null;
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(
-                ex,
-                "MintDocumentVerificationTokenAsync: Exception occurred");
-
-            return null;
-        }
     }
 
     public async Task<string?> CreateBiometricKycTokenAsync()
