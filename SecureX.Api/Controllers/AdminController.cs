@@ -17,7 +17,8 @@ public class AdminController(
     TransactionService txService,
     SmileIdService smileIdService,
     IConfiguration config,
-    ILogger<AdminController> logger) : ControllerBase
+    ILogger<AdminController> logger,
+    AwsCloudWatchLogsService awsLogs) : ControllerBase
 {
     private string CallerEmail => User.FindFirstValue(ClaimTypes.Email) ?? "unknown";
 
@@ -671,6 +672,45 @@ public class AdminController(
         logger.LogInformation("GET AUDIT LOG: Found {Total} total", total);
 
         return Ok(new { total, page, size, items });
+    }
+
+    // ── GET /api/admin/aws-logs ─────────────────────────────────────────────
+    [HttpGet("aws-logs")]
+    public async Task<IActionResult> AwsLogs(
+        [FromQuery] int hours = 1,
+        [FromQuery] string? search = null,
+        [FromQuery] string? level = null,
+        [FromQuery] int limit = 100,
+        [FromQuery] string? nextToken = null)
+    {
+        hours = Math.Clamp(hours, 1, 24 * 7);
+        limit = Math.Clamp(limit, 1, 100);
+        var to = DateTime.UtcNow;
+        var from = to.AddHours(-hours);
+
+        try
+        {
+            var result = await awsLogs.GetAsync(from, to, search, level, limit, nextToken, HttpContext.RequestAborted);
+            return Ok(new
+            {
+                items = result.Items,
+                nextToken = result.NextToken,
+                logGroup = result.LogGroup,
+                from = result.From,
+                to = result.To,
+                region = config["AWS_REGION"] ?? Environment.GetEnvironmentVariable("AWS_REGION") ?? "configured",
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning(ex, "CloudWatch log query failed for admin {Caller}", CallerEmail);
+            return StatusCode(503, new { error = ex.Message });
+        }
+        catch (Amazon.CloudWatchLogs.Model.ResourceNotFoundException ex)
+        {
+            logger.LogWarning(ex, "CloudWatch log group unavailable for admin {Caller}", CallerEmail);
+            return StatusCode(503, new { error = ex.Message });
+        }
     }
 
     // ── Mappers ───────────────────────────────────────────────────────────────
