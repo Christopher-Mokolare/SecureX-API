@@ -1,5 +1,6 @@
 using System.Text;
 using Amazon.SimpleSystemsManagement;
+using Amazon.CloudWatchLogs;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
@@ -126,6 +127,8 @@ builder.Services.AddScoped<SmileIdService>();
 builder.Services.AddScoped<TransactionService>();
 builder.Services.AddScoped<EmailService>();
 builder.Services.AddAWSService<Amazon.SimpleEmailV2.IAmazonSimpleEmailServiceV2>();
+builder.Services.AddAWSService<IAmazonCloudWatchLogs>();
+builder.Services.AddScoped<AwsCloudWatchLogsService>();
 builder.Services.AddSingleton<DealTokenService>();
 builder.Services.AddHostedService<ReconciliationService>();
 builder.Services.AddHostedService<OzowPayoutPollerService>();
