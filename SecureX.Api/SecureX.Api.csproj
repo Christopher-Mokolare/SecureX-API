@@ -7,6 +7,7 @@
   <ItemGroup>
     <PackageReference Include="Amazon.AspNetCore.DataProtection.SSM" Version="3.1.1" />
     <PackageReference Include="AWSSDK.SimpleEmailV2" Version="3.7.410.14" />
+    <PackageReference Include="AWSSDK.CloudWatchLogs" Version="3.7.400.26" />
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.4" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.4" />
