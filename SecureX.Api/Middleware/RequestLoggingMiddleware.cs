@@ -117,7 +117,7 @@ public class RequestLoggingMiddleware(
                 userId,
                 provider,
                 transactionId,
-                ctx.RequestAborted);
+                CancellationToken.None);
         }
         catch
         {
