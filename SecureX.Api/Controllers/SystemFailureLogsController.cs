@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SecureX.Api.Data;
 using SecureX.Api.Services;
 using System.Security.Claims;
 
