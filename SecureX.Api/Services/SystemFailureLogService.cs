@@ -71,13 +71,9 @@ CREATE INDEX IF NOT EXISTS idx_system_failure_logs_correlation_id ON system_fail
 CREATE INDEX IF NOT EXISTS idx_system_failure_logs_transaction_id ON system_failure_logs (transaction_id);
 ";
 
-    private bool schemaReady;
-
     public async Task EnsureSchemaAsync(CancellationToken cancellationToken = default)
     {
-        if (schemaReady) return;
         await db.Database.ExecuteSqlRawAsync(CreateTableSql, cancellationToken);
-        schemaReady = true;
     }
 
     public async Task RecordAsync(
@@ -177,18 +173,21 @@ VALUES
         var whereSql = where.Count == 0 ? "" : $"WHERE {string.Join(" AND ", where)}";
         var countSql = $"SELECT COUNT(*) FROM system_failure_logs {whereSql}";
 
-        await using var connection = db.Database.GetDbConnection();
-        if (connection.State != ConnectionState.Open)
+        var connection = db.Database.GetDbConnection();
+        var openedHere = connection.State != ConnectionState.Open;
+        if (openedHere)
             await connection.OpenAsync(cancellationToken);
 
-        await using var countCommand = connection.CreateCommand();
-        countCommand.CommandText = countSql;
-        foreach (var parameter in parameters)
-            countCommand.Parameters.Add(Clone(parameter));
-        var total = Convert.ToInt32(await countCommand.ExecuteScalarAsync(cancellationToken));
+        try
+        {
+            await using var countCommand = connection.CreateCommand();
+            countCommand.CommandText = countSql;
+            foreach (var parameter in parameters)
+                countCommand.Parameters.Add(Clone(parameter));
+            var total = Convert.ToInt32(await countCommand.ExecuteScalarAsync(cancellationToken));
 
-        var offset = (page - 1) * size;
-        var listSql = $@"
+            var offset = (page - 1) * size;
+            var listSql = $@"
 SELECT id, severity, category, service, environment, method, path, status_code,
        error_type, message, exception, stack_trace, correlation_id, user_id, provider,
        transaction_id, occurrence_count, resolved, resolved_at, resolved_by, resolution_notes,
@@ -198,24 +197,30 @@ FROM system_failure_logs
 ORDER BY created_at DESC
 OFFSET @offset LIMIT @limit;";
 
-        await using var listCommand = connection.CreateCommand();
-        listCommand.CommandText = listSql;
-        foreach (var parameter in parameters)
-            listCommand.Parameters.Add(Clone(parameter));
-        listCommand.Parameters.Add(new NpgsqlParameter("offset", offset));
-        listCommand.Parameters.Add(new NpgsqlParameter("limit", size));
+            await using var listCommand = connection.CreateCommand();
+            listCommand.CommandText = listSql;
+            foreach (var parameter in parameters)
+                listCommand.Parameters.Add(Clone(parameter));
+            listCommand.Parameters.Add(new NpgsqlParameter("offset", offset));
+            listCommand.Parameters.Add(new NpgsqlParameter("limit", size));
 
-        var items = new List<SystemFailureLogRecord>();
-        await using var reader = await listCommand.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-            items.Add(ReadRecord(reader));
+            var items = new List<SystemFailureLogRecord>();
+            await using var reader = await listCommand.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+                items.Add(ReadRecord(reader));
 
-        return new PagedSystemFailureLogs(
-            items,
-            total,
-            page,
-            size,
-            (int)Math.Ceiling(total / (double)size));
+            return new PagedSystemFailureLogs(
+                items,
+                total,
+                page,
+                size,
+                (int)Math.Ceiling(total / (double)size));
+        }
+        finally
+        {
+            if (openedHere)
+                await connection.CloseAsync();
+        }
     }
 
     public async Task<bool> SetResolvedAsync(Guid id, bool resolved, string actor, string? notes, CancellationToken cancellationToken = default)
