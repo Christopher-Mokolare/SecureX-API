@@ -5,10 +5,6 @@ using SecureX.Api.Services;
 
 namespace SecureX.Api.Middleware;
 
-/// <summary>
-/// Logs API/webhook requests and persists server-side failures for the admin incident view.
-/// Request bodies are never persisted to avoid leaking PII or financial data.
-/// </summary>
 public class RequestLoggingMiddleware(
     RequestDelegate next,
     ILogger<RequestLoggingMiddleware> logger)
@@ -35,24 +31,18 @@ public class RequestLoggingMiddleware(
         ctx.Response.Headers["X-Correlation-ID"] = correlationId;
 
         var sw = Stopwatch.StartNew();
+        Exception? unhandledException = null;
+
         try
         {
             await next(ctx);
         }
         catch (Exception ex)
         {
-            sw.Stop();
-            var userId = ctx.User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var provider = DetectProvider(path);
-            var txId = TryGetTransactionId(path);
-
+            unhandledException = ex;
             logger.LogError(ex,
                 "[HTTP] {Method} {Path} -> 500 in {Ms}ms | correlation={CorrelationId} ip={Ip} provider={Provider}",
-                method, path, sw.ElapsedMilliseconds, correlationId, ip, provider ?? "none");
-
-            await PersistFailureAsync(
-                ctx, method, path, 500, ex.Message, ex.GetType().Name, ex.ToString(),
-                ex.StackTrace, correlationId, userId, provider, txId);
+                method, path, sw.ElapsedMilliseconds, correlationId, DetectProvider(path) ?? "none");
             throw;
         }
         finally
@@ -69,14 +59,26 @@ public class RequestLoggingMiddleware(
                 method, path, status, sw.ElapsedMilliseconds,
                 hasJwt, hasDealToken, ip, uaShort, correlationId);
 
+            // Persist one incident per failed request. Exception details captured above
+            // are attached here so an exception is not double-counted.
             if (status >= 500)
             {
                 var userId = ctx.User.FindFirstValue(ClaimTypes.NameIdentifier);
                 var provider = DetectProvider(path);
                 var txId = TryGetTransactionId(path);
                 await PersistFailureAsync(
-                    ctx, method, path, status, $"HTTP {status} returned by API", null, null,
-                    null, correlationId, userId, provider, txId);
+                    ctx,
+                    method,
+                    path,
+                    status,
+                    unhandledException?.Message ?? $"HTTP {status} returned by API",
+                    unhandledException?.GetType().Name,
+                    unhandledException?.ToString(),
+                    unhandledException?.StackTrace,
+                    correlationId,
+                    userId,
+                    provider,
+                    txId);
             }
         }
     }
@@ -99,11 +101,9 @@ public class RequestLoggingMiddleware(
         {
             var db = ctx.RequestServices.GetRequiredService<AppDbContext>();
             var service = new SystemFailureLogService(db);
-            var severity = statusCode >= 500 ? "Critical" : "Error";
-            var category = statusCode >= 500 ? "System" : "HTTP";
             await service.RecordAsync(
-                severity,
-                category,
+                statusCode >= 500 ? "Critical" : "Error",
+                statusCode >= 500 ? "System" : "HTTP",
                 "SecureX API",
                 ctx.RequestServices.GetRequiredService<IWebHostEnvironment>().EnvironmentName,
                 method,
