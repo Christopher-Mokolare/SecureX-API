@@ -179,8 +179,16 @@ var defaultAllowedOrigins = builder.Environment.IsDevelopment()
         ? "https://securex-staging.web.app,https://securex-staging.firebaseapp.com,https://securex-fe.web.app,https://securex.co.za,http://localhost:4200,http://localhost:3000"
         : "https://www.secureexchange.co.za,https://secureexchange.co.za,https://securex-fe.web.app,https://securex.co.za,https://securex-staging.web.app,https://securex-staging.firebaseapp.com,http://localhost:4200,http://localhost:3000";
 
-var allowedOrigins = (Environment.GetEnvironmentVariable("ALLOWED_ORIGINS") ?? defaultAllowedOrigins)
-    .Split(',', StringSplitOptions.RemoveEmptyEntries);
+var configuredAllowedOrigins = Environment.GetEnvironmentVariable("ALLOWED_ORIGINS");
+
+var allowedOrigins = string.Join(",", new[]
+{
+    defaultAllowedOrigins,
+    configuredAllowedOrigins
+})
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray();
 
 builder.Services.AddCors(opt => opt.AddDefaultPolicy(p =>
     p.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod()));
