@@ -5,6 +5,7 @@ namespace SecureX.Api.Services;
 
 public sealed record AwsLogEntry(
     string Timestamp,
+    string Level,
     string Message,
     string? LogStreamName,
     string? EventId);
@@ -57,11 +58,16 @@ public sealed class AwsCloudWatchLogsService(IAmazonCloudWatchLogs logs, IConfig
             var response = await logs.FilterLogEventsAsync(request, cancellationToken);
 
             return new AwsLogPage(
-                response.Events.Select(x => new AwsLogEntry(
-                    DateTimeOffset.FromUnixTimeMilliseconds(x.Timestamp).UtcDateTime.ToString("O"),
-                    x.Message,
-                    x.LogStreamName,
-                    x.EventId)).ToList(),
+                response.Events.Select(x =>
+                {
+                    var message = x.Message ?? string.Empty;
+                    return new AwsLogEntry(
+                        DateTimeOffset.FromUnixTimeMilliseconds(x.Timestamp).UtcDateTime.ToString("O"),
+                        DetectLevel(message),
+                        message,
+                        x.LogStreamName,
+                        x.EventId);
+                }).ToList(),
                 response.NextToken,
                 LogGroup,
                 from,
@@ -69,7 +75,7 @@ public sealed class AwsCloudWatchLogsService(IAmazonCloudWatchLogs logs, IConfig
         }
         catch (ResourceNotFoundException ex)
         {
-            throw new System.InvalidOperationException(
+            throw new InvalidOperationException(
                 $"CloudWatch log group '{LogGroup}' was not found in AWS_REGION '{config["AWS_REGION"] ?? "configured region"}'.",
                 ex);
         }
@@ -80,23 +86,63 @@ public sealed class AwsCloudWatchLogsService(IAmazonCloudWatchLogs logs, IConfig
         var terms = new List<string>();
 
         if (!string.IsNullOrWhiteSpace(level))
-            terms.Add(level.Trim());
+            terms.Add(BuildLevelPattern(level));
 
         if (!string.IsNullOrWhiteSpace(search))
-            terms.Add(search.Trim());
+            terms.Add(EscapeFilterTerm(search.Trim()));
 
-        return terms.Count == 0 ? null : string.Join(" ", terms.Select(EscapeFilterTerm));
+        return terms.Count == 0 ? null : string.Join(" ", terms);
     }
+
+    private static string BuildLevelPattern(string level)
+    {
+        var normalized = level.Trim().ToUpperInvariant();
+        var values = normalized switch
+        {
+            "ERROR" => new[] { "ERROR", "Error", "error", "FAIL", "Fail", "fail", "FATAL", "Fatal", "fatal", "EXCEPTION", "Exception", "exception" },
+            "WARN" => new[] { "WARN", "Warn", "warn", "WARNING", "Warning", "warning" },
+            "INFO" => new[] { "INFO", "Info", "info", "INFORMATION", "Information", "information" },
+            _ => throw new ArgumentException($"Unsupported log level '{level}'.", nameof(level))
+        };
+
+        return "%" + string.Join("|", values.Select(RegexEscape)) + "%";
+    }
+
+    private static string RegexEscape(string value) =>
+        value.Replace("\", "\\").Replace(".", "\.").Replace("*", "\*")
+             .Replace("?", "\?").Replace("+", "\+").Replace("{", "\{")
+             .Replace("}", "\}").Replace("[", "\[").Replace("]", "\]")
+             .Replace("(", "\(").Replace(")", "\)").Replace("^", "\^")
+             .Replace("$", "\$").Replace("|", "\|");
 
     private static string EscapeFilterTerm(string value)
     {
         var sanitized = value
-            .Replace("\"", string.Empty)
-            .Replace("\r", " ")
-            .Replace("\n", " ");
+            .Replace(""", string.Empty)
+            .Replace("", " ")
+            .Replace("
+", " ");
 
         return sanitized.Contains(' ')
-            ? "\"" + sanitized + "\""
+            ? """ + sanitized + """
             : sanitized;
+    }
+
+    private static string DetectLevel(string message)
+    {
+        var value = message.ToUpperInvariant();
+
+        if (value.Contains("CRITICAL") || value.Contains("FATAL") ||
+            value.Contains("ERROR") || value.Contains("EXCEPTION") ||
+            value.Contains("FAIL:") || value.Contains("FAILURE"))
+            return "ERROR";
+
+        if (value.Contains("WARN") || value.Contains("WARNING"))
+            return "WARN";
+
+        if (value.Contains("INFO") || value.Contains("INFORMATION"))
+            return "INFO";
+
+        return "LOG";
     }
 }
