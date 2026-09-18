@@ -176,7 +176,7 @@ var defaultAllowedOrigins = builder.Environment.IsDevelopment()
     ? "http://localhost:4200,http://localhost:3000,http://localhost:59144"
     : builder.Environment.IsStaging()
         ? "https://securex-staging.web.app,https://securex-staging.firebaseapp.com,https://securex-fe.web.app,https://securex.co.za,http://localhost:4200,http://localhost:3000"
-        : "https://securex-fe.web.app,https://securex.co.za,https://securex-staging.web.app,https://securex-staging.firebaseapp.com,http://localhost:4200,http://localhost:3000";
+        : "https://www.secureexchange.co.za,https://secureexchange.co.za,https://securex-fe.web.app,https://securex.co.za,https://securex-staging.web.app,https://securex-staging.firebaseapp.com,http://localhost:4200,http://localhost:3000";
 
 var allowedOrigins = (Environment.GetEnvironmentVariable("ALLOWED_ORIGINS") ?? defaultAllowedOrigins)
     .Split(',', StringSplitOptions.RemoveEmptyEntries);
