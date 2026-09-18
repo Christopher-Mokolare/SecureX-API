@@ -129,6 +129,7 @@ builder.Services.AddScoped<EmailService>();
 builder.Services.AddAWSService<Amazon.SimpleEmailV2.IAmazonSimpleEmailServiceV2>();
 builder.Services.AddAWSService<IAmazonCloudWatchLogs>();
 builder.Services.AddScoped<AwsCloudWatchLogsService>();
+builder.Services.AddScoped<SystemFailureLogService>();
 builder.Services.AddSingleton<DealTokenService>();
 builder.Services.AddHostedService<ReconciliationService>();
 builder.Services.AddHostedService<OzowPayoutPollerService>();
