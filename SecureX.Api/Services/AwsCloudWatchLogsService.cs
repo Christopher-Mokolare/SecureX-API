@@ -91,5 +91,6 @@ public sealed class AwsCloudWatchLogsService(IAmazonCloudWatchLogs logs, IConfig
     private static string EscapeFilterTerm(string value)
     {
         var sanitized = value.Replace("\"", string.Empty).Replace("\r", " ").Replace("\n", " ");
-        return sanitized.Contains(' ') ? $"\\\"{sanitized}\\\"" : sanitized;
-    }}
+        return sanitized.Contains(' ') ? $"\"{sanitized}\"" : sanitized;
+    }
+}
