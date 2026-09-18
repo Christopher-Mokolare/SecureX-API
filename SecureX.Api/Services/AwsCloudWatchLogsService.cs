@@ -97,34 +97,25 @@ public sealed class AwsCloudWatchLogsService(IAmazonCloudWatchLogs logs, IConfig
     private static string BuildLevelPattern(string level)
     {
         var normalized = level.Trim().ToUpperInvariant();
-        var values = normalized switch
+
+        return normalized switch
         {
-            "ERROR" => new[] { "ERROR", "Error", "error", "FAIL", "Fail", "fail", "FATAL", "Fatal", "fatal", "EXCEPTION", "Exception", "exception" },
-            "WARN" => new[] { "WARN", "Warn", "warn", "WARNING", "Warning", "warning" },
-            "INFO" => new[] { "INFO", "Info", "info", "INFORMATION", "Information", "information" },
+            "ERROR" => "%ERROR|Error|error|FAIL|Fail|fail|FATAL|Fatal|fatal|EXCEPTION|Exception|exception%",
+            "WARN" => "%WARN|Warn|warn|WARNING|Warning|warning%",
+            "INFO" => "%INFO|Info|info|INFORMATION|Information|information%",
             _ => throw new ArgumentException($"Unsupported log level '{level}'.", nameof(level))
         };
-
-        return "%" + string.Join("|", values.Select(RegexEscape)) + "%";
     }
-
-    private static string RegexEscape(string value) =>
-        value.Replace("\", "\\").Replace(".", "\.").Replace("*", "\*")
-             .Replace("?", "\?").Replace("+", "\+").Replace("{", "\{")
-             .Replace("}", "\}").Replace("[", "\[").Replace("]", "\]")
-             .Replace("(", "\(").Replace(")", "\)").Replace("^", "\^")
-             .Replace("$", "\$").Replace("|", "\|");
 
     private static string EscapeFilterTerm(string value)
     {
         var sanitized = value
-            .Replace(""", string.Empty)
-            .Replace("", " ")
-            .Replace("
-", " ");
+            .Replace("\"", string.Empty)
+            .Replace("\r", " ")
+            .Replace("\n", " ");
 
         return sanitized.Contains(' ')
-            ? """ + sanitized + """
+            ? "\"" + sanitized + "\""
             : sanitized;
     }
 
