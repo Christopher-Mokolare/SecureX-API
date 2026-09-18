@@ -42,7 +42,7 @@ public class RequestLoggingMiddleware(
             unhandledException = ex;
             logger.LogError(ex,
                 "[HTTP] {Method} {Path} -> 500 in {Ms}ms | correlation={CorrelationId} ip={Ip} provider={Provider}",
-                method, path, sw.ElapsedMilliseconds, correlationId, DetectProvider(path) ?? "none");
+                method, path, sw.ElapsedMilliseconds, correlationId, ip, DetectProvider(path) ?? "none");
             throw;
         }
         finally
