@@ -69,12 +69,11 @@ CREATE INDEX IF NOT EXISTS idx_system_failure_logs_created_at ON system_failure_
 CREATE INDEX IF NOT EXISTS idx_system_failure_logs_severity_resolved ON system_failure_logs (severity, resolved);
 CREATE INDEX IF NOT EXISTS idx_system_failure_logs_correlation_id ON system_failure_logs (correlation_id);
 CREATE INDEX IF NOT EXISTS idx_system_failure_logs_transaction_id ON system_failure_logs (transaction_id);
+CREATE INDEX IF NOT EXISTS idx_system_failure_logs_fingerprint ON system_failure_logs (service, path, status_code, error_type, resolved, last_seen_at);
 ";
 
     public async Task EnsureSchemaAsync(CancellationToken cancellationToken = default)
-    {
-        await db.Database.ExecuteSqlRawAsync(CreateTableSql, cancellationToken);
-    }
+        => await db.Database.ExecuteSqlRawAsync(CreateTableSql, cancellationToken);
 
     public async Task RecordAsync(
         string severity,
@@ -98,7 +97,52 @@ CREATE INDEX IF NOT EXISTS idx_system_failure_logs_transaction_id ON system_fail
         {
             await EnsureSchemaAsync(cancellationToken);
 
-            const string sql = @"
+            var now = DateTime.UtcNow;
+            const string updateSql = @"
+UPDATE system_failure_logs
+SET occurrence_count = occurrence_count + 1,
+    last_seen_at = @last_seen_at,
+    severity = CASE WHEN @severity = 'Critical' THEN 'Critical' ELSE severity END,
+    exception = COALESCE(@exception, exception),
+    stack_trace = COALESCE(@stack_trace, stack_trace),
+    correlation_id = @correlation_id,
+    user_id = COALESCE(@user_id, user_id),
+    transaction_id = COALESCE(@transaction_id, transaction_id)
+WHERE resolved = false
+  AND service = @service
+  AND environment = @environment
+  AND method = @method
+  AND path = @path
+  AND status_code = @status_code
+  AND COALESCE(error_type, '') = COALESCE(@error_type, '')
+  AND message = @message
+  AND COALESCE(provider, '') = COALESCE(@provider, '')
+  AND last_seen_at >= @window_start;";
+
+            var updated = await db.Database.ExecuteSqlRawAsync(
+                updateSql,
+                new NpgsqlParameter("last_seen_at", now),
+                new NpgsqlParameter("severity", severity),
+                NullableParameter("exception", exception),
+                NullableParameter("stack_trace", stackTrace),
+                NullableParameter("correlation_id", correlationId),
+                NullableParameter("user_id", userId),
+                NullableParameter("transaction_id", transactionId),
+                new NpgsqlParameter("service", service),
+                new NpgsqlParameter("environment", environment),
+                new NpgsqlParameter("method", method),
+                new NpgsqlParameter("path", path),
+                new NpgsqlParameter("status_code", statusCode),
+                NullableParameter("error_type", errorType),
+                new NpgsqlParameter("message", message),
+                NullableParameter("provider", provider),
+                new NpgsqlParameter("window_start", now.AddHours(-24)),
+                cancellationToken);
+
+            if (updated > 0)
+                return;
+
+            const string insertSql = @"
 INSERT INTO system_failure_logs
 (id, severity, category, service, environment, method, path, status_code, error_type, message,
  exception, stack_trace, correlation_id, user_id, provider, transaction_id, occurrence_count,
@@ -108,27 +152,26 @@ VALUES
  @exception, @stack_trace, @correlation_id, @user_id, @provider, @transaction_id, 1,
  false, @created_at, @last_seen_at);";
 
-            var now = DateTime.UtcNow;
-            await db.Database.ExecuteSqlRawAsync(sql,
-                Parameters(
-                    new NpgsqlParameter("id", Guid.NewGuid()),
-                    new NpgsqlParameter("severity", severity),
-                    new NpgsqlParameter("category", category),
-                    new NpgsqlParameter("service", service),
-                    new NpgsqlParameter("environment", environment),
-                    new NpgsqlParameter("method", method),
-                    new NpgsqlParameter("path", path),
-                    new NpgsqlParameter("status_code", statusCode),
-                    NullableParameter("error_type", errorType),
-                    new NpgsqlParameter("message", message),
-                    NullableParameter("exception", exception),
-                    NullableParameter("stack_trace", stackTrace),
-                    NullableParameter("correlation_id", correlationId),
-                    NullableParameter("user_id", userId),
-                    NullableParameter("provider", provider),
-                    NullableParameter("transaction_id", transactionId),
-                    new NpgsqlParameter("created_at", now),
-                    new NpgsqlParameter("last_seen_at", now)),
+            await db.Database.ExecuteSqlRawAsync(
+                insertSql,
+                new NpgsqlParameter("id", Guid.NewGuid()),
+                new NpgsqlParameter("severity", severity),
+                new NpgsqlParameter("category", category),
+                new NpgsqlParameter("service", service),
+                new NpgsqlParameter("environment", environment),
+                new NpgsqlParameter("method", method),
+                new NpgsqlParameter("path", path),
+                new NpgsqlParameter("status_code", statusCode),
+                NullableParameter("error_type", errorType),
+                new NpgsqlParameter("message", message),
+                NullableParameter("exception", exception),
+                NullableParameter("stack_trace", stackTrace),
+                NullableParameter("correlation_id", correlationId),
+                NullableParameter("user_id", userId),
+                NullableParameter("provider", provider),
+                NullableParameter("transaction_id", transactionId),
+                new NpgsqlParameter("created_at", now),
+                new NpgsqlParameter("last_seen_at", now),
                 cancellationToken);
         }
         catch
@@ -154,7 +197,11 @@ VALUES
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            where.Add("(message ILIKE @search OR path ILIKE @search OR correlation_id ILIKE @search OR provider ILIKE @search OR error_type ILIKE @search)");
+            where.Add(@"(
+                message ILIKE @search OR category ILIKE @search OR service ILIKE @search OR
+                method ILIKE @search OR path ILIKE @search OR correlation_id ILIKE @search OR
+                provider ILIKE @search OR error_type ILIKE @search OR
+                transaction_id::text ILIKE @search OR user_id ILIKE @search)");
             parameters.Add(new NpgsqlParameter("search", $"%{search}%"));
         }
 
@@ -210,11 +257,7 @@ OFFSET @offset LIMIT @limit;";
                 items.Add(ReadRecord(reader));
 
             return new PagedSystemFailureLogs(
-                items,
-                total,
-                page,
-                size,
-                (int)Math.Ceiling(total / (double)size));
+                items, total, page, size, (int)Math.Ceiling(total / (double)size));
         }
         finally
         {
@@ -223,7 +266,12 @@ OFFSET @offset LIMIT @limit;";
         }
     }
 
-    public async Task<bool> SetResolvedAsync(Guid id, bool resolved, string actor, string? notes, CancellationToken cancellationToken = default)
+    public async Task<bool> SetResolvedAsync(
+        Guid id,
+        bool resolved,
+        string actor,
+        string? notes,
+        CancellationToken cancellationToken = default)
     {
         await EnsureSchemaAsync(cancellationToken);
         const string sql = @"
@@ -231,11 +279,12 @@ UPDATE system_failure_logs
 SET resolved = @resolved,
     resolved_at = CASE WHEN @resolved THEN CURRENT_TIMESTAMP ELSE NULL END,
     resolved_by = CASE WHEN @resolved THEN @actor ELSE NULL END,
-    resolution_notes = @notes,
+    resolution_notes = CASE WHEN @resolved THEN @notes ELSE NULL END,
     last_seen_at = CURRENT_TIMESTAMP
 WHERE id = @id;";
 
-        var affected = await db.Database.ExecuteSqlRawAsync(sql,
+        var affected = await db.Database.ExecuteSqlRawAsync(
+            sql,
             new NpgsqlParameter("resolved", resolved),
             new NpgsqlParameter("actor", actor),
             NullableParameter("notes", notes),
@@ -250,15 +299,21 @@ WHERE id = @id;";
         r.GetString(5), r.GetString(6), r.GetInt32(7), NullableString(r, 8), r.GetString(9),
         NullableString(r, 10), NullableString(r, 11), NullableString(r, 12), NullableString(r, 13),
         NullableString(r, 14), NullableGuid(r, 15), r.GetInt32(16), r.GetBoolean(17),
-        NullableDate(r, 18), NullableString(r, 19), NullableString(r, 20), r.GetDateTime(21), r.GetDateTime(22));
+        NullableDate(r, 18), NullableString(r, 19), NullableString(r, 20), NullableString(r, 21),
+        r.GetDateTime(22), r.GetDateTime(23));
 
-    private static string? NullableString(System.Data.Common.DbDataReader r, int ordinal) => r.IsDBNull(ordinal) ? null : r.GetString(ordinal);
-    private static Guid? NullableGuid(System.Data.Common.DbDataReader r, int ordinal) => r.IsDBNull(ordinal) ? null : r.GetGuid(ordinal);
-    private static DateTime? NullableDate(System.Data.Common.DbDataReader r, int ordinal) => r.IsDBNull(ordinal) ? null : r.GetDateTime(ordinal);
+    private static string? NullableString(System.Data.Common.DbDataReader r, int ordinal) =>
+        r.IsDBNull(ordinal) ? null : r.GetString(ordinal);
+
+    private static Guid? NullableGuid(System.Data.Common.DbDataReader r, int ordinal) =>
+        r.IsDBNull(ordinal) ? null : r.GetGuid(ordinal);
+
+    private static DateTime? NullableDate(System.Data.Common.DbDataReader r, int ordinal) =>
+        r.IsDBNull(ordinal) ? null : r.GetDateTime(ordinal);
 
     private static NpgsqlParameter NullableParameter(string name, object? value) =>
         new(name, value ?? DBNull.Value);
 
-    private static NpgsqlParameter Clone(NpgsqlParameter source) => new(source.ParameterName, source.Value ?? DBNull.Value);
-    private static NpgsqlParameter[] Parameters(params NpgsqlParameter[] parameters) => parameters;
+    private static NpgsqlParameter Clone(NpgsqlParameter source) =>
+        new(source.ParameterName, source.Value ?? DBNull.Value);
 }
