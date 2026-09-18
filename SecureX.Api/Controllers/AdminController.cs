@@ -675,6 +675,57 @@ public class AdminController(
     }
 
     // ── GET /api/admin/aws-logs ─────────────────────────────────────────────
+    // Temporary admin-only incident pipeline verification endpoint.
+    [HttpPost("test-failures/{scenario}")]
+    public async Task<IActionResult> CreateTestFailure(string scenario, [FromServices] SystemFailureLogService failureLogs)
+    {
+        var normalized = scenario.Trim().ToLowerInvariant();
+
+        var test = normalized switch
+        {
+            "internal" => (
+                Severity: "Critical", Category: "System", Service: "SecureX API", Status: 500,
+                Provider: (string?)null, ErrorType: "IntentionalTestException",
+                Message: "Intentional test: simulated internal API failure.",
+                Exception: "IntentionalTestException: admin incident pipeline test.",
+                Stack: "SecureX test endpoint stack trace placeholder."
+            ),
+            "ozow" => (
+                Severity: "Critical", Category: "Provider", Service: "SecureX API", Status: 502,
+                Provider: (string?)"Ozow", ErrorType: "IntentionalProviderTestException",
+                Message: "Intentional test: simulated Ozow provider failure.",
+                Exception: "IntentionalProviderTestException: Ozow incident pipeline test.",
+                Stack: "SecureX test endpoint provider stack trace placeholder."
+            ),
+            "service" => (
+                Severity: "Error", Category: "System", Service: "SecureX API", Status: 503,
+                Provider: (string?)null, ErrorType: "IntentionalServiceTestException",
+                Message: "Intentional test: simulated downstream service failure.",
+                Exception: "IntentionalServiceTestException: service incident pipeline test.",
+                Stack: "SecureX test endpoint service stack trace placeholder."
+            ),
+            _ => (
+                Severity: (string?)null, Category: (string?)null, Service: (string?)null, Status: 0,
+                Provider: (string?)null, ErrorType: (string?)null, Message: (string?)null,
+                Exception: (string?)null, Stack: (string?)null
+            )
+        };
+
+        if (test.Message is null)
+            return BadRequest(new { error = "Unknown scenario. Use internal, ozow, or service." });
+
+        var correlationId = $"TEST-{Guid.NewGuid():N}";
+        await failureLogs.RecordAsync(
+            test.Severity!, test.Category!, test.Service!,
+            HttpContext.RequestServices.GetRequiredService<IWebHostEnvironment>().EnvironmentName,
+            "POST", $"/api/admin/test-failures/{normalized}", test.Status, test.Message,
+            test.ErrorType, test.Exception, test.Stack, correlationId,
+            User.FindFirstValue(ClaimTypes.NameIdentifier), test.Provider, null,
+            HttpContext.RequestAborted);
+
+        return StatusCode(test.Status, new { test = true, scenario = normalized, correlationId, message = test.Message });
+    }
+
     [HttpGet("aws-logs")]
     public async Task<IActionResult> AwsLogs(
         [FromQuery] int hours = 1,
