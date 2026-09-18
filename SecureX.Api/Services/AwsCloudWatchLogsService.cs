@@ -69,7 +69,7 @@ public sealed class AwsCloudWatchLogsService(IAmazonCloudWatchLogs logs, IConfig
         }
         catch (ResourceNotFoundException ex)
         {
-            throw new InvalidOperationException(
+            throw new System.InvalidOperationException(
                 $"CloudWatch log group '{LogGroup}' was not found in AWS_REGION '{config["AWS_REGION"] ?? "configured region"}'.",
                 ex);
         }
@@ -90,7 +90,7 @@ public sealed class AwsCloudWatchLogsService(IAmazonCloudWatchLogs logs, IConfig
 
     private static string EscapeFilterTerm(string value)
     {
-        var sanitized = value.Replace("\"", string.Empty).Replace("\r", " ").Replace("\n", " ");
-        return sanitized.Contains(' ') ? $"\"{sanitized}\"" : sanitized;
+        var sanitized = value.Replace(""", string.Empty).Replace("\r", " ").Replace("\n", " ");
+        return sanitized.Contains(' ') ? $""{sanitized}"" : sanitized;
     }
 }
