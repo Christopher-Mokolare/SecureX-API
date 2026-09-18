@@ -299,8 +299,8 @@ WHERE id = @id;";
         r.GetString(5), r.GetString(6), r.GetInt32(7), NullableString(r, 8), r.GetString(9),
         NullableString(r, 10), NullableString(r, 11), NullableString(r, 12), NullableString(r, 13),
         NullableString(r, 14), NullableGuid(r, 15), r.GetInt32(16), r.GetBoolean(17),
-        NullableDate(r, 18), NullableString(r, 19), NullableString(r, 20), NullableString(r, 21),
-        r.GetDateTime(22), r.GetDateTime(23));
+        NullableDate(r, 18), NullableString(r, 19), NullableString(r, 20),
+        r.GetDateTime(21), r.GetDateTime(22));
 
     private static string? NullableString(System.Data.Common.DbDataReader r, int ordinal) =>
         r.IsDBNull(ordinal) ? null : r.GetString(ordinal);
