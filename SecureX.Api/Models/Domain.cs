@@ -106,9 +106,11 @@ public class ReconciliationReport
     public Guid Id { get; set; } = Guid.NewGuid();
     public DateTime RunAt { get; set; } = DateTime.UtcNow;
     public decimal ExpectedFloat { get; set; }
-    public decimal OzowFloat { get; set; }
+    public decimal? OzowFloat { get; set; }
     public decimal Discrepancy { get; set; }
     public bool AlertFired { get; set; }
+    public string Status { get; set; } = "Reconciled";
+    public string? Error { get; set; }
 }
 
 // Tracks submitted payouts so the poller can check status if no webhook arrives
