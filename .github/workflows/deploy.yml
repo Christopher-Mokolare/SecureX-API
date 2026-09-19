@@ -67,7 +67,7 @@ jobs:
             --cluster ${{ env.ECS_CLUSTER }} \
             --service ${{ env.ECS_SERVICE }} \
             --deployment-configuration 'deploymentCircuitBreaker={enable=true,rollback=true},maximumPercent=200,minimumHealthyPercent=100' \
-            --health-check-grace-period-seconds 120 \
+            --health-check-grace-period-seconds 180 \
             --output json > /dev/null
 
       - name: Deploy to ECS
@@ -88,9 +88,44 @@ jobs:
             --include TAGS \
             --query 'services[0].{status:status,desired:desiredCount,running:runningCount,pending:pendingCount,deployments:deployments,events:events[0:20]}' \
             --output json
-          echo "=== ECS tasks ==="
-          aws ecs list-tasks \
+          echo "=== ECS tasks (running) ==="
+          RUNNING_TASKS=$(aws ecs list-tasks \
             --cluster ${{ env.ECS_CLUSTER }} \
             --service-name ${{ env.ECS_SERVICE }} \
             --desired-status RUNNING \
-            --output json
+            --query 'taskArns' \
+            --output text)
+          if [ -n "$RUNNING_TASKS" ]; then
+            aws ecs describe-tasks \
+              --cluster ${{ env.ECS_CLUSTER }} \
+              --tasks $RUNNING_TASKS \
+              --query 'tasks[].{taskArn:taskArn,lastStatus:lastStatus,healthStatus:healthStatus,healthCheck:healthCheck,containers:containers[].{name:name,lastStatus:lastStatus,health:healthStatus,reason:reason,exitCode:exitCode}}' \
+              --output json
+          fi
+
+          echo "=== ECS tasks (stopped) ==="
+          STOPPED_TASKS=$(aws ecs list-tasks \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service-name ${{ env.ECS_SERVICE }} \
+            --desired-status STOPPED \
+            --query 'taskArns' \
+            --output text)
+          if [ -n "$STOPPED_TASKS" ]; then
+            aws ecs describe-tasks \
+              --cluster ${{ env.ECS_CLUSTER }} \
+              --tasks $STOPPED_TASKS \
+              --query 'tasks[].{taskArn:taskArn,lastStatus:lastStatus,stoppedReason:stoppedReason,stopCode:stopCode,containers:containers[].{name:name,lastStatus:lastStatus,reason:reason,exitCode:exitCode}}' \
+              --output json
+          fi
+
+          echo "=== ELB target health ==="
+          TARGET_GROUP=$(aws ecs describe-services \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.ECS_SERVICE }} \
+            --query 'services[0].loadBalancers[0].targetGroupArn' \
+            --output text)
+          if [ -n "$TARGET_GROUP" ] && [ "$TARGET_GROUP" != "None" ]; then
+            aws elbv2 describe-target-health \
+              --target-group-arn "$TARGET_GROUP" \
+              --output json
+          fi
