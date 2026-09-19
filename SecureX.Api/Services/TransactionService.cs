@@ -403,6 +403,23 @@ public class TransactionService(
             var encKey       = config["Ozow:AccountNumberDecryptionKey"] ?? "";
             var payoutAmount = tx.ItemValue - tx.SellerFee;
 
+            // A normal completion may only create one active payout for the deal.
+            // Explicit admin retries use a distinct merchant reference.
+            if (merchantReferenceOverride is null)
+            {
+                var existingPending = await freshDb.PendingPayouts
+                    .AsNoTracking()
+                    .AnyAsync(p => p.DealReference == tx.DealReference && !p.Resolved);
+
+                if (existingPending)
+                {
+                    logger.LogWarning(
+                        "TriggerPayout: active payout already exists for {Ref}; refusing duplicate submission",
+                        tx.DealReference);
+                    return;
+                }
+            }
+
             logger.LogInformation("TriggerPayout: dispatching R{Amount} to bank={BankGroupId} notifyUrl={NotifyUrl}",
                 payoutAmount, seller.BankGroupId, notifyUrl);
 
