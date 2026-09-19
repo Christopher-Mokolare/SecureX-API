@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using System.Text.Json;
 using SecureX.Api.Data;
 using SecureX.Api.Models;
@@ -42,7 +43,7 @@ public class OzowNotificationController(HashService hash, AppDbContext db,
             });
             await db.SaveChangesAsync();
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
         {
             duplicate = true;
             db.ChangeTracker.Clear();
