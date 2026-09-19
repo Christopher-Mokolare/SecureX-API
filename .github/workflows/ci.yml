@@ -26,6 +26,25 @@ jobs:
       - name: Build
         run: dotnet build SecureX.Api/SecureX.Api.csproj --configuration Release --no-restore
 
+      - name: Validate EF migrations
+        env:
+          ASPNETCORE_ENVIRONMENT: Production
+          JWT_SECRET: ci-migration-validation-secret
+        run: |
+          dotnet tool install --global dotnet-ef --version 9.0.4
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          dotnet ef migrations list \
+            --project SecureX.Api/SecureX.Api.csproj \
+            --startup-project SecureX.Api/SecureX.Api.csproj \
+            --no-build | tee /tmp/ef-migrations.txt
+          for migration in \
+            20260919010000_HardenReconciliationProviderStatus \
+            20260919020000_CreateSystemFailureLogs \
+            20260919030000_EnforceActivePayoutUniqueness
+          do
+            grep -F "$migration" /tmp/ef-migrations.txt
+          done
+
       - name: Test
         shell: bash
         run: |
