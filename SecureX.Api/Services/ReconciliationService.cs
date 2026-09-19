@@ -7,10 +7,8 @@ namespace SecureX.Api.Services;
 public class ReconciliationService(IServiceScopeFactory scopeFactory, IHttpClientFactory httpFactory, IConfiguration config, ILogger<ReconciliationService> logger)
     : BackgroundService
 {
-    // In-flight statuses that hold funds in the float
     private static readonly TransactionStatus[] InFlightStatuses =
     [
-        TransactionStatus.PaymentPending,
         TransactionStatus.FundsSecured,
         TransactionStatus.LogisticsPending,
         TransactionStatus.ItemDelivered,
@@ -33,35 +31,37 @@ public class ReconciliationService(IServiceScopeFactory scopeFactory, IHttpClien
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var inFlight = await db.Transactions
-            .Where(t => t.Status == TransactionStatus.PaymentPending ||
-                        t.Status == TransactionStatus.FundsSecured ||
-                        t.Status == TransactionStatus.LogisticsPending ||
-                        t.Status == TransactionStatus.ItemDelivered)
+            .AsNoTracking()
+            .Where(t => InFlightStatuses.Contains(t.Status))
             .ToListAsync(ct);
 
-        var expectedFloat = inFlight.Sum(t => t.ItemValue + t.PlatformFee);
+        var expectedFloat = inFlight.Sum(t => t.TotalCheckoutAmount);
+        var provider = await FetchOzowFloatAsync(ct);
 
-        var ozowFloat = await FetchOzowFloatAsync();
-
-        var discrepancy = expectedFloat - ozowFloat;
-        var alertFired = Math.Abs(discrepancy) > 0.01m;
-
-        db.ReconciliationReports.Add(new ReconciliationReport
+        var report = new ReconciliationReport
         {
             ExpectedFloat = expectedFloat,
-            OzowFloat = ozowFloat,
-            Discrepancy = discrepancy,
-            AlertFired = alertFired,
-        });
+            OzowFloat = provider.Balance,
+            Discrepancy = provider.Balance.HasValue ? expectedFloat - provider.Balance.Value : 0m,
+            AlertFired = provider.Balance.HasValue && Math.Abs(expectedFloat - provider.Balance.Value) > 0.01m,
+            Status = provider.Balance.HasValue ? "Reconciled" : "ProviderUnavailable",
+            Error = provider.Error,
+        };
 
+        db.ReconciliationReports.Add(report);
         await db.SaveChangesAsync(ct);
 
-        if (alertFired)
+        if (report.AlertFired)
         {
             logger.LogCritical(
                 "RECONCILIATION DISCREPANCY: expected R{Expected}, Ozow R{Ozow}, diff R{Diff}",
-                expectedFloat, ozowFloat, discrepancy);
-            // TODO: publish to SNS
+                expectedFloat, report.OzowFloat, report.Discrepancy);
+        }
+        else if (report.Status == "ProviderUnavailable")
+        {
+            logger.LogError(
+                "RECONCILIATION UNAVAILABLE: expected R{Expected}. Ozow balance could not be verified: {Error}",
+                expectedFloat, report.Error);
         }
         else
         {
@@ -69,39 +69,75 @@ public class ReconciliationService(IServiceScopeFactory scopeFactory, IHttpClien
         }
     }
 
-    private async Task<decimal> FetchOzowFloatAsync()
+    private async Task<OzowFloatResult> FetchOzowFloatAsync(CancellationToken ct)
     {
-        var baseUrl = config["Ozow:PayoutBaseUrl"] ?? "https://stagingpayoutsapi.ozow.com/v1";
-        var siteCode = config["Ozow:SiteCode"]!;
-        var apiKey   = config["Ozow:PayoutApiKey"]!;
+        var baseUrl = config["Ozow:PayoutBaseUrl"];
+        var siteCode = config["Ozow:SiteCode"];
+        var apiKey = config["Ozow:PayoutApiKey"];
+
+        if (string.IsNullOrWhiteSpace(baseUrl) ||
+            string.IsNullOrWhiteSpace(siteCode) ||
+            string.IsNullOrWhiteSpace(apiKey))
+            return new(null, "Ozow payout balance configuration is incomplete.");
 
         var client = httpFactory.CreateClient("OzowPayout");
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/getfloatbalanceinfo");
+        using var req = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"{baseUrl.TrimEnd('/')}/getfloatbalanceinfo");
         req.Headers.Add("SiteCode", siteCode);
         req.Headers.Add("ApiKey", apiKey);
 
         try
         {
-            var res = await client.SendAsync(req);
-            var raw = await res.Content.ReadAsStringAsync();
+            using var res = await client.SendAsync(req, ct);
+            var raw = await res.Content.ReadAsStringAsync(ct);
+
             if (!res.IsSuccessStatusCode)
             {
                 logger.LogWarning("Ozow float fetch failed {Status}: {Body}", res.StatusCode, raw);
-                return 0m;
+                return new(null, $"Ozow returned HTTP {(int)res.StatusCode}.");
             }
-            var doc = System.Text.Json.JsonDocument.Parse(raw);
-            if (doc.RootElement.TryGetProperty("availableBalance", out var bal))
-                return bal.GetDecimal();
-            if (doc.RootElement.TryGetProperty("balance", out var b))
-                return b.GetDecimal();
-            return 0m;
+
+            using var doc = System.Text.Json.JsonDocument.Parse(raw);
+            if (TryGetDecimal(doc.RootElement, "availableBalance", out var available))
+                return new(available, null);
+            if (TryGetDecimal(doc.RootElement, "balance", out var balance))
+                return new(balance, null);
+
+            return new(null, "Ozow response did not contain availableBalance or balance.");
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Ozow float fetch threw");
-            return 0m;
+            return new(null, "Ozow balance request failed.");
         }
     }
+
+    private static bool TryGetDecimal(
+        System.Text.Json.JsonElement root,
+        string property,
+        out decimal value)
+    {
+        value = 0m;
+        if (!root.TryGetProperty(property, out var element))
+            return false;
+
+        if (element.ValueKind == System.Text.Json.JsonValueKind.Number)
+            return element.TryGetDecimal(out value);
+
+        return element.ValueKind == System.Text.Json.JsonValueKind.String &&
+               decimal.TryParse(
+                   element.GetString(),
+                   System.Globalization.NumberStyles.Any,
+                   System.Globalization.CultureInfo.InvariantCulture,
+                   out value);
+    }
+
+    private sealed record OzowFloatResult(decimal? Balance, string? Error);
 
     private static TimeSpan TimeUntilNext0200Sast()
     {
