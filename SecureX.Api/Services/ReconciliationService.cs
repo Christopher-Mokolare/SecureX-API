@@ -4,7 +4,7 @@ using SecureX.Api.Models;
 
 namespace SecureX.Api.Services;
 
-public class ReconciliationService(IServiceScopeFactory scopeFactory, IHttpClientFactory httpFactory, IConfiguration config, ILogger<ReconciliationService> logger)
+public class ReconciliationService(IServiceScopeFactory scopeFactory, ILogger<ReconciliationService> logger)
     : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken ct)
@@ -23,10 +23,12 @@ public class ReconciliationService(IServiceScopeFactory scopeFactory, IHttpClien
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        // Ozow "float" is the merchant-funded balance used for payouts/refunds.
+        // Ozow float is the merchant-funded balance used for payouts/refunds.
         // It is NOT the same thing as SecureX customer funds currently in escrow.
-        // Comparing escrow balances directly to Ozow float produces false financial
-        // discrepancies because pay-ins and float are separate Ozow concepts.
+        //
+        // The current documented Ozow Payouts API exposes payout operations but does
+        // not expose a merchant-float-balance operation. Do not infer a zero balance
+        // when no authoritative provider balance is available.
         var unresolvedPayoutRefs = await db.PendingPayouts
             .AsNoTracking()
             .Where(p => !p.Resolved)
@@ -47,112 +49,33 @@ public class ReconciliationService(IServiceScopeFactory scopeFactory, IHttpClien
             .SumAsync(t => t.TotalCheckoutAmount, ct);
 
         var requiredFloat = payoutReserve + refundReserve;
-        var provider = await FetchOzowFloatAsync(ct);
+
+        // Ozow's documented Payouts API does not provide a live merchant-float
+        // balance endpoint. Until Ozow supplies an approved balance/float API or
+        // another authoritative integration, record the provider side as unavailable
+        // rather than displaying R0.00 and creating a false shortfall.
+        const string providerError =
+            "Ozow does not expose a documented live float-balance endpoint in the current Payouts API. " +
+            "Provider float must be verified in the Ozow merchant dashboard or via an approved Ozow balance integration.";
 
         var report = new ReconciliationReport
         {
             ExpectedFloat = requiredFloat,
-            OzowFloat = provider.Balance,
-            // Positive means the required payout/refund reserve exceeds Ozow float.
-            Discrepancy = provider.Balance.HasValue ? requiredFloat - provider.Balance.Value : 0m,
-            AlertFired = provider.Balance.HasValue && requiredFloat - provider.Balance.Value > 0.01m,
-            Status = provider.Balance.HasValue
-                ? (requiredFloat - provider.Balance.Value > 0.01m ? "FloatShortfall" : "Sufficient")
-                : "ProviderUnavailable",
-            Error = provider.Error,
+            OzowFloat = null,
+            Discrepancy = 0m,
+            AlertFired = false,
+            Status = "ProviderUnavailable",
+            Error = providerError,
         };
 
         db.ReconciliationReports.Add(report);
         await db.SaveChangesAsync(ct);
 
-        if (report.AlertFired)
-        {
-            logger.LogCritical(
-                "RECONCILIATION DISCREPANCY: expected R{Expected}, Ozow R{Ozow}, diff R{Diff}",
-                requiredFloat, report.OzowFloat, report.Discrepancy);
-        }
-        else if (report.Status == "ProviderUnavailable")
-        {
-            logger.LogError(
-                "RECONCILIATION UNAVAILABLE: expected R{Expected}. Ozow balance could not be verified: {Error}",
-                requiredFloat, report.Error);
-        }
-        else
-        {
-            logger.LogInformation("Reconciliation OK. Required float R{Required}, Ozow float R{Ozow}",
-                requiredFloat, report.OzowFloat);
-        }
+        logger.LogWarning(
+            "RECONCILIATION PROVIDER BALANCE UNAVAILABLE: required reserve R{Expected}. {Error}",
+            requiredFloat,
+            providerError);
     }
-
-    private async Task<OzowFloatResult> FetchOzowFloatAsync(CancellationToken ct)
-    {
-        var baseUrl = config["Ozow:PayoutBaseUrl"];
-        var siteCode = config["Ozow:SiteCode"];
-        var apiKey = config["Ozow:PayoutApiKey"];
-
-        if (string.IsNullOrWhiteSpace(baseUrl) ||
-            string.IsNullOrWhiteSpace(siteCode) ||
-            string.IsNullOrWhiteSpace(apiKey))
-            return new(null, "Ozow payout balance configuration is incomplete.");
-
-        var client = httpFactory.CreateClient("OzowPayout");
-        using var req = new HttpRequestMessage(
-            HttpMethod.Get,
-            $"{baseUrl.TrimEnd('/')}/getfloatbalanceinfo");
-        req.Headers.Add("SiteCode", siteCode);
-        req.Headers.Add("ApiKey", apiKey);
-
-        try
-        {
-            using var res = await client.SendAsync(req, ct);
-            var raw = await res.Content.ReadAsStringAsync(ct);
-
-            if (!res.IsSuccessStatusCode)
-            {
-                logger.LogWarning("Ozow float fetch failed {Status}: {Body}", res.StatusCode, raw);
-                return new(null, $"Ozow returned HTTP {(int)res.StatusCode}.");
-            }
-
-            using var doc = System.Text.Json.JsonDocument.Parse(raw);
-            if (TryGetDecimal(doc.RootElement, "availableBalance", out var available))
-                return new(available, null);
-            if (TryGetDecimal(doc.RootElement, "balance", out var balance))
-                return new(balance, null);
-
-            return new(null, "Ozow response did not contain availableBalance or balance.");
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Ozow float fetch threw");
-            return new(null, "Ozow balance request failed.");
-        }
-    }
-
-    private static bool TryGetDecimal(
-        System.Text.Json.JsonElement root,
-        string property,
-        out decimal value)
-    {
-        value = 0m;
-        if (!root.TryGetProperty(property, out var element))
-            return false;
-
-        if (element.ValueKind == System.Text.Json.JsonValueKind.Number)
-            return element.TryGetDecimal(out value);
-
-        return element.ValueKind == System.Text.Json.JsonValueKind.String &&
-               decimal.TryParse(
-                   element.GetString(),
-                   System.Globalization.NumberStyles.Any,
-                   System.Globalization.CultureInfo.InvariantCulture,
-                   out value);
-    }
-
-    private sealed record OzowFloatResult(decimal? Balance, string? Error);
 
     private static TimeSpan TimeUntilNext0200Sast()
     {
