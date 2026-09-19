@@ -282,11 +282,20 @@ public class AdminController(
             return BadRequest(new ErrorResponse { Error = $"Transaction must be Completed to retry payout (current: {tx.Status})" });
         }
 
-        var stale = await db.PendingPayouts
-            .Where(p => p.DealReference == tx.DealReference && !p.Resolved)
-            .ToListAsync();
-        foreach (var p in stale) { p.Resolved = true; p.ResolvedAt = DateTime.UtcNow; }
-        await db.SaveChangesAsync();
+        var activePayout = await db.PendingPayouts
+            .AsNoTracking()
+            .AnyAsync(p => p.DealReference == tx.DealReference && !p.Resolved);
+
+        if (activePayout)
+        {
+            logger.LogWarning(
+                "Cannot retry payout for {DealReference}: an active payout is still unresolved",
+                tx.DealReference);
+            return Conflict(new ErrorResponse
+            {
+                Error = "An existing payout is still pending. Resolve or wait for that payout before retrying."
+            });
+        }
 
         var retryRef = $"{tx.DealReference}-R{DateTime.UtcNow:yyMMddHHmmss}";
         await txService.TriggerPayoutAsync(tx, retryRef);
