@@ -111,10 +111,14 @@ public class OzowPayoutPollerService(IServiceScopeFactory scopeFactory, IConfigu
                     pending.PollCount++;
                     if (pending.PollCount >= MaxPollAttempts)
                     {
-                        logger.LogWarning("PayoutPoller: max attempts reached for {PayoutId} Ref={Ref} — marking resolved to stop polling",
+                        // Never mark an unresolved payout as resolved merely because
+                        // polling exhausted its retry budget. It remains part of the
+                        // reconciliation reserve and can be retried by a later poll
+                        // cycle or by an explicit admin action.
+                        logger.LogError(
+                            "PayoutPoller: max attempts reached for {PayoutId} Ref={Ref}; payout remains unresolved for reconciliation",
                             pending.PayoutId, pending.DealReference);
-                        pending.Resolved   = true;
-                        pending.ResolvedAt = DateTime.UtcNow;
+                        pending.PollCount = 0;
                     }
                     await db.SaveChangesAsync(ct);
                 }

@@ -1,13 +1,13 @@
 using System.Diagnostics;
 using System.Security.Claims;
-using SecureX.Api.Data;
 using SecureX.Api.Services;
 
 namespace SecureX.Api.Middleware;
 
 public class RequestLoggingMiddleware(
     RequestDelegate next,
-    ILogger<RequestLoggingMiddleware> logger)
+    ILogger<RequestLoggingMiddleware> logger,
+    SystemFailureLogService failureLogs)
 {
     public async Task InvokeAsync(HttpContext ctx)
     {
@@ -78,7 +78,8 @@ public class RequestLoggingMiddleware(
                     correlationId,
                     userId,
                     provider,
-                    txId);
+                    txId,
+                    failureLogs);
             }
         }
     }
@@ -95,13 +96,12 @@ public class RequestLoggingMiddleware(
         string? correlationId,
         string? userId,
         string? provider,
-        Guid? transactionId)
+        Guid? transactionId,
+        SystemFailureLogService failureLogs)
     {
         try
         {
-            var db = ctx.RequestServices.GetRequiredService<AppDbContext>();
-            var service = new SystemFailureLogService(db);
-            await service.RecordAsync(
+            await failureLogs.RecordAsync(
                 statusCode >= 500 ? "Critical" : "Error",
                 statusCode >= 500 ? "System" : "HTTP",
                 "SecureX API",

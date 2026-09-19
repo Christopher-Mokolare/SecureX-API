@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4.3.1
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore SecureX.Api/SecureX.Api.csproj
+
+      - name: Build
+        run: dotnet build SecureX.Api/SecureX.Api.csproj --configuration Release --no-restore
+
+      - name: Test
+        shell: bash
+        run: |
+          if find . -name '*Tests.csproj' -o -name '*Test.csproj' | grep -q .; then
+            dotnet test --configuration Release --no-build --no-restore
+          else
+            echo "No test project found; build verification completed."
+          fi

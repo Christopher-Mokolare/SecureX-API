@@ -321,7 +321,7 @@ public class TransactionService(
         {
             var updated = await AdvanceStateAsync(txId, TransactionStatus.RequiresRefund,
                 TransactionStatus.Completed, actor, "Dispute resolved: released to seller", tx.Version);
-            _ = TriggerPayoutAsync(updated);
+            await TriggerPayoutAsync(updated);
             return updated;
         }
 
@@ -341,7 +341,7 @@ public class TransactionService(
     {
         var tx = await AdvanceStateAsync(txId, TransactionStatus.ItemDelivered,
             TransactionStatus.Completed, actor, "Buyer accepted item", expectedVersion);
-        _ = TriggerPayoutAsync(tx);
+        await TriggerPayoutAsync(tx);
         return tx;
     }
 
@@ -362,7 +362,7 @@ public class TransactionService(
             TransactionStatus.RequiresRefund, "buyer", $"Buyer rejected item: {safeReason}", expectedVersion);
     }
 
-    public async Task TriggerPayoutAsync(Transaction tx, string? merchantReferenceOverride = null)
+    public async Task<bool> TriggerPayoutAsync(Transaction tx, string? merchantReferenceOverride = null)
     {
         try
         {
@@ -374,11 +374,19 @@ public class TransactionService(
             await using var scope = scopeFactory.CreateAsyncScope();
             var freshDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
+            // Serialize all payout attempts for the same deal at the database level.
+            // This prevents two concurrent completion/retry requests from both
+            // reaching Ozow before either local payout record is persisted.
+            await using var payoutTransaction = await freshDb.Database.BeginTransactionAsync();
+            await freshDb.Database.ExecuteSqlRawAsync(
+                "SELECT pg_advisory_xact_lock(hashtext({0}))", tx.DealReference);
+
             var seller = await freshDb.Users.FindAsync(tx.SellerId);
             if (seller is null)
             {
                 logger.LogError("TriggerPayout: seller {SellerId} not found for {Ref}", tx.SellerId, tx.DealReference);
-                return;
+                await payoutTransaction.RollbackAsync();
+                return false;
             }
 
             if (seller.IdCheckStatus != KycStatus.Approved ||
@@ -387,7 +395,8 @@ public class TransactionService(
             {
                 logger.LogWarning("TriggerPayout: seller verification incomplete for {Ref}. KYC={Kyc} AML={Aml} Liveness={Liveness}",
                     tx.DealReference, seller.IdCheckStatus, seller.AmlStatus, seller.LivenessStatus);
-                return;
+                await payoutTransaction.RollbackAsync();
+                return false;
             }
 
             if (string.IsNullOrWhiteSpace(seller.BankAccountNumber) ||
@@ -395,13 +404,65 @@ public class TransactionService(
             {
                 logger.LogWarning("TriggerPayout: seller {SellerId} has no bank details — payout skipped. Account='{Account}' Branch='{Branch}'",
                     tx.SellerId, seller.BankAccountNumber, seller.BankBranchCode);
-                return;
+                await payoutTransaction.RollbackAsync();
+                return false;
             }
 
             var notifyUrl    = config["Ozow:NotifyUrl"] ?? "";
             var verifyUrl    = config["Ozow:VerifyUrl"] ?? "";
             var encKey       = config["Ozow:AccountNumberDecryptionKey"] ?? "";
             var payoutAmount = tx.ItemValue - tx.SellerFee;
+
+            // A normal completion may only create one active payout for the deal.
+            // Explicit admin retries use a distinct merchant reference.
+            if (merchantReferenceOverride is null)
+            {
+                var existingPending = await freshDb.PendingPayouts
+                    .AsNoTracking()
+                    .AnyAsync(p => p.DealReference == tx.DealReference && !p.Resolved);
+
+                if (existingPending)
+                {
+                    logger.LogWarning(
+                        "TriggerPayout: active payout already exists for {Ref}; refusing duplicate submission",
+                        tx.DealReference);
+                    await payoutTransaction.RollbackAsync();
+                    return true;
+                }
+            }
+
+            // Recover a provider-side payout that was accepted before a previous
+            // local database write completed. Never submit a second payout for the
+            // same merchant reference when Ozow already has one.
+            //
+            // For an admin retry, verify the ORIGINAL deal reference first. The
+            // retry reference is intentionally different, so checking only the
+            // retry reference could duplicate a payout when Ozow already processed
+            // the original request but the local PendingPayout row was lost.
+            var recoveryReferences = merchantReferenceOverride is null
+                ? new[] { merchantRef }
+                : new[] { tx.DealReference, merchantRef };
+
+            foreach (var recoveryReference in recoveryReferences.Distinct(StringComparer.Ordinal))
+            {
+                var recoveredPayoutId = await payoutService.FindExistingPayoutIdAsync(recoveryReference, payoutAmount);
+                if (string.IsNullOrWhiteSpace(recoveredPayoutId))
+                    continue;
+
+                freshDb.PendingPayouts.Add(new PendingPayout
+                {
+                    PayoutId = recoveredPayoutId,
+                    DealReference = tx.DealReference,
+                });
+                await freshDb.SaveChangesAsync();
+                await payoutTransaction.CommitAsync();
+                logger.LogWarning(
+                    "TriggerPayout: recovered existing Ozow payout {PayoutId} for {Ref} via merchant reference {MerchantReference}",
+                    recoveredPayoutId,
+                    tx.DealReference,
+                    recoveryReference);
+                return true;
+            }
 
             logger.LogInformation("TriggerPayout: dispatching R{Amount} to bank={BankGroupId} notifyUrl={NotifyUrl}",
                 payoutAmount, seller.BankGroupId, notifyUrl);
@@ -412,22 +473,27 @@ public class TransactionService(
                 seller.BankBranchCode, encKey, notifyUrl, verifyUrl);
 
             if (payoutId is null)
-                logger.LogError("TriggerPayout: Ozow rejected payout for {Ref} merchantRef={MerchantRef}", tx.DealReference, merchantRef);
-            else
             {
-                logger.LogInformation("TriggerPayout: success PayoutId={PayoutId} Ref={Ref} merchantRef={MerchantRef}",
-                    payoutId, tx.DealReference, merchantRef);
-                freshDb.PendingPayouts.Add(new PendingPayout
-                {
-                    PayoutId = payoutId,
-                    DealReference = tx.DealReference,
-                });
-                await freshDb.SaveChangesAsync();
+                logger.LogError("TriggerPayout: Ozow rejected payout for {Ref} merchantRef={MerchantRef}", tx.DealReference, merchantRef);
+                await payoutTransaction.RollbackAsync();
+                return false;
             }
+
+            logger.LogInformation("TriggerPayout: success PayoutId={PayoutId} Ref={Ref} merchantRef={MerchantRef}",
+                payoutId, tx.DealReference, merchantRef);
+            freshDb.PendingPayouts.Add(new PendingPayout
+            {
+                PayoutId = payoutId,
+                DealReference = tx.DealReference,
+            });
+            await freshDb.SaveChangesAsync();
+            await payoutTransaction.CommitAsync();
+            return true;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "TriggerPayout: unhandled exception for {Ref}", tx.DealReference);
+            return false;
         }
     }
 

@@ -111,6 +111,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.OzowFloat).HasColumnName("ozow_float").HasColumnType("numeric(14,2)");
             e.Property(x => x.Discrepancy).HasColumnName("discrepancy").HasColumnType("numeric(14,2)");
             e.Property(x => x.AlertFired).HasColumnName("alert_fired");
+            e.Property(x => x.Status).HasColumnName("status");
+            e.Property(x => x.Error).HasColumnName("error");
         });
 
         b.Entity<PendingPayout>(e =>
@@ -123,6 +125,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.SubmittedAt).HasColumnName("submitted_at");
             e.Property(x => x.ResolvedAt).HasColumnName("resolved_at");
             e.HasIndex(x => x.Resolved).HasDatabaseName("idx_pending_payouts_resolved");
+            e.HasIndex(x => x.DealReference)
+                .HasDatabaseName("ux_pending_payouts_active_deal_reference")
+                .HasFilter("resolved = false")
+                .IsUnique();
         });
     }
 }

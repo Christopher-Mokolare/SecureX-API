@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace SecureX.Api.Migrations;
 
+[Migration("20260919010000_HardenReconciliationProviderStatus")]
 public partial class HardenReconciliationProviderStatus : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)

@@ -40,7 +40,7 @@ public class AdminController(
         page = Math.Max(1, page);
 
         DateTime? from = DateTime.TryParse(fromDate, out var fd) ? fd.ToUniversalTime() : null;
-        DateTime? to = DateTime.TryParse(toDate, out var td) ? td.ToUniversalTime().AddDays(1) : null;
+        DateTime? to = DateTime.TryParse(toDate, out var td) ? td.ToUniversalTime().Date.AddDays(1) : null;
 
         var query = db.Transactions
             .Include(t => t.Buyer)
@@ -58,7 +58,7 @@ public class AdminController(
                 (t.Seller != null && t.Seller.Email.Contains(search)));
 
         if (from.HasValue) query = query.Where(t => t.CreatedAt >= from.Value);
-        if (to.HasValue) query = query.Where(t => t.CreatedAt <= to.Value);
+        if (to.HasValue) query = query.Where(t => t.CreatedAt < to.Value);
 
         var total = await query.CountAsync();
         var items = await query
@@ -249,7 +249,7 @@ public class AdminController(
             var updated = await txService.AdvanceStateAsync(id, tx.Status, toStatus, CallerEmail, reason, tx.Version);
 
             if (toStatus == TransactionStatus.Completed)
-                _ = txService.TriggerPayoutAsync(updated);
+                await txService.TriggerPayoutAsync(updated);
 
             logger.LogInformation("Transaction advanced: {Id} from {Old} to {New}", id, tx.Status, toStatus);
             return Ok(MapTransaction(updated));
@@ -282,17 +282,32 @@ public class AdminController(
             return BadRequest(new ErrorResponse { Error = $"Transaction must be Completed to retry payout (current: {tx.Status})" });
         }
 
-        var stale = await db.PendingPayouts
-            .Where(p => p.DealReference == tx.DealReference && !p.Resolved)
-            .ToListAsync();
-        foreach (var p in stale) { p.Resolved = true; p.ResolvedAt = DateTime.UtcNow; }
-        await db.SaveChangesAsync();
+        var activePayout = await db.PendingPayouts
+            .AsNoTracking()
+            .AnyAsync(p => p.DealReference == tx.DealReference && !p.Resolved);
+
+        if (activePayout)
+        {
+            logger.LogWarning(
+                "Cannot retry payout for {DealReference}: an active payout is still unresolved",
+                tx.DealReference);
+            return Conflict(new ErrorResponse
+            {
+                Error = "An existing payout is still pending. Resolve or wait for that payout before retrying."
+            });
+        }
 
         var retryRef = $"{tx.DealReference}-R{DateTime.UtcNow:yyMMddHHmmss}";
-        await txService.TriggerPayoutAsync(tx, retryRef);
+        var submitted = await txService.TriggerPayoutAsync(tx, retryRef);
+
+        if (!submitted)
+        {
+            logger.LogError("Payout retry failed for {DealReference} using {RetryReference}", tx.DealReference, retryRef);
+            return StatusCode(502, new ErrorResponse { Error = "Payout could not be submitted. No payout was confirmed by Ozow." });
+        }
 
         logger.LogInformation("Payout retried for: {DealReference}", tx.DealReference);
-        return Ok(new { dealReference = tx.DealReference, retryReference = retryRef, message = "Payout resubmitted" });
+        return Ok(new { dealReference = tx.DealReference, retryReference = retryRef, message = "Payout submitted" });
     }
 
     // ── GET /api/admin/users ──────────────────────────────────────────────────
@@ -650,7 +665,7 @@ public class AdminController(
             query = query.Where(a => a.TriggerActor.Contains(search) || a.ActionDetails.Contains(search));
 
         if (from.HasValue) query = query.Where(a => a.Timestamp >= from.Value);
-        if (to.HasValue) query = query.Where(a => a.Timestamp <= to.Value);
+        if (to.HasValue) query = query.Where(a => a.Timestamp < to.Value);
 
         var total = await query.CountAsync();
         var items = await query
