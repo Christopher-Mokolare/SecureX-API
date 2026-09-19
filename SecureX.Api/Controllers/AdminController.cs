@@ -40,7 +40,7 @@ public class AdminController(
         page = Math.Max(1, page);
 
         DateTime? from = DateTime.TryParse(fromDate, out var fd) ? fd.ToUniversalTime() : null;
-        DateTime? to = DateTime.TryParse(toDate, out var td) ? td.ToUniversalTime().AddDays(1) : null;
+        DateTime? to = DateTime.TryParse(toDate, out var td) ? td.ToUniversalTime().Date.AddDays(1) : null;
 
         var query = db.Transactions
             .Include(t => t.Buyer)
@@ -58,7 +58,7 @@ public class AdminController(
                 (t.Seller != null && t.Seller.Email.Contains(search)));
 
         if (from.HasValue) query = query.Where(t => t.CreatedAt >= from.Value);
-        if (to.HasValue) query = query.Where(t => t.CreatedAt <= to.Value);
+        if (to.HasValue) query = query.Where(t => t.CreatedAt < to.Value);
 
         var total = await query.CountAsync();
         var items = await query
@@ -665,7 +665,7 @@ public class AdminController(
             query = query.Where(a => a.TriggerActor.Contains(search) || a.ActionDetails.Contains(search));
 
         if (from.HasValue) query = query.Where(a => a.Timestamp >= from.Value);
-        if (to.HasValue) query = query.Where(a => a.Timestamp <= to.Value);
+        if (to.HasValue) query = query.Where(a => a.Timestamp < to.Value);
 
         var total = await query.CountAsync();
         var items = await query
