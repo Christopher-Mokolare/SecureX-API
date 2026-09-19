@@ -155,6 +155,11 @@ namespace SecureX.Api.Migrations
                     b.HasIndex("Resolved")
                         .HasDatabaseName("idx_pending_payouts_resolved");
 
+                    b.HasIndex("DealReference")
+                        .HasDatabaseName("ux_pending_payouts_active_deal_reference")
+                        .HasFilter("resolved = false")
+                        .IsUnique();
+
                     b.ToTable("pending_payouts", (string)null);
                 });
 
