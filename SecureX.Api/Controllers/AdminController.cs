@@ -514,13 +514,13 @@ public class AdminController(
             .GroupBy(n => n.MerchantReference!, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
 
-        var activeOrResolvedPayoutRefs = payoutRows
-            .Where(p => p.Resolved || !p.Resolved)
+        var activePayoutRefs = payoutRows
+            .Where(p => !p.Resolved)
             .Select(p => p.DealReference)
             .ToHashSet(StringComparer.Ordinal);
 
         var missing = completed
-            .Where(t => !activeOrResolvedPayoutRefs.Contains(t.DealReference) &&
+            .Where(t => !activePayoutRefs.Contains(t.DealReference) &&
                         !terminalSuccessRefs.Contains(t.DealReference))
             .Select(t =>
             {
