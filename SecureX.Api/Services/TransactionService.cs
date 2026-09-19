@@ -458,24 +458,22 @@ public class TransactionService(
                 seller.BankBranchCode, encKey, notifyUrl, verifyUrl);
 
             if (payoutId is null)
+            {
                 logger.LogError("TriggerPayout: Ozow rejected payout for {Ref} merchantRef={MerchantRef}", tx.DealReference, merchantRef);
-            else
-            {
-                logger.LogInformation("TriggerPayout: success PayoutId={PayoutId} Ref={Ref} merchantRef={MerchantRef}",
-                    payoutId, tx.DealReference, merchantRef);
-                freshDb.PendingPayouts.Add(new PendingPayout
-                {
-                    PayoutId = payoutId,
-                    DealReference = tx.DealReference,
-                });
-                await freshDb.SaveChangesAsync();
-                await payoutTransaction.CommitAsync();
-            }
-            else
-            {
                 await payoutTransaction.RollbackAsync();
+                return false;
             }
-            return payoutId is not null;
+
+            logger.LogInformation("TriggerPayout: success PayoutId={PayoutId} Ref={Ref} merchantRef={MerchantRef}",
+                payoutId, tx.DealReference, merchantRef);
+            freshDb.PendingPayouts.Add(new PendingPayout
+            {
+                PayoutId = payoutId,
+                DealReference = tx.DealReference,
+            });
+            await freshDb.SaveChangesAsync();
+            await payoutTransaction.CommitAsync();
+            return true;
         }
         catch (Exception ex)
         {
