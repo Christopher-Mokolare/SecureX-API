@@ -176,13 +176,22 @@ namespace SecureX.Api.Migrations
                         .HasColumnType("numeric(14,2)")
                         .HasColumnName("expected_float");
 
-                    b.Property<decimal>("OzowFloat")
+                    b.Property<decimal?>("OzowFloat")
                         .HasColumnType("numeric(14,2)")
                         .HasColumnName("ozow_float");
 
                     b.Property<DateTime>("RunAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("run_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("text")
+                        .HasColumnName("error");
 
                     b.HasKey("Id");
 
