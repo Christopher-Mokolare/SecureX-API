@@ -362,7 +362,7 @@ public class TransactionService(
             TransactionStatus.RequiresRefund, "buyer", $"Buyer rejected item: {safeReason}", expectedVersion);
     }
 
-    public async Task TriggerPayoutAsync(Transaction tx, string? merchantReferenceOverride = null)
+    public async Task<bool> TriggerPayoutAsync(Transaction tx, string? merchantReferenceOverride = null)
     {
         try
         {
@@ -416,7 +416,7 @@ public class TransactionService(
                     logger.LogWarning(
                         "TriggerPayout: active payout already exists for {Ref}; refusing duplicate submission",
                         tx.DealReference);
-                    return;
+                    return true;
                 }
             }
 
@@ -434,7 +434,7 @@ public class TransactionService(
                 await freshDb.SaveChangesAsync();
                 logger.LogWarning("TriggerPayout: recovered existing Ozow payout {PayoutId} for {Ref}",
                     recoveredPayoutId, merchantRef);
-                return;
+                return true;
             }
 
             logger.LogInformation("TriggerPayout: dispatching R{Amount} to bank={BankGroupId} notifyUrl={NotifyUrl}",
@@ -458,10 +458,12 @@ public class TransactionService(
                 });
                 await freshDb.SaveChangesAsync();
             }
+            return payoutId is not null;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "TriggerPayout: unhandled exception for {Ref}", tx.DealReference);
+            return false;
         }
     }
 
