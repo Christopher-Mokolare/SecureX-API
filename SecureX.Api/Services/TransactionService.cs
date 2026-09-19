@@ -434,9 +434,21 @@ public class TransactionService(
             // Recover a provider-side payout that was accepted before a previous
             // local database write completed. Never submit a second payout for the
             // same merchant reference when Ozow already has one.
-            var recoveredPayoutId = await payoutService.FindExistingPayoutIdAsync(merchantRef, payoutAmount);
-            if (!string.IsNullOrWhiteSpace(recoveredPayoutId))
+            //
+            // For an admin retry, verify the ORIGINAL deal reference first. The
+            // retry reference is intentionally different, so checking only the
+            // retry reference could duplicate a payout when Ozow already processed
+            // the original request but the local PendingPayout row was lost.
+            var recoveryReferences = merchantReferenceOverride is null
+                ? new[] { merchantRef }
+                : new[] { tx.DealReference, merchantRef };
+
+            foreach (var recoveryReference in recoveryReferences.Distinct(StringComparer.Ordinal))
             {
+                var recoveredPayoutId = await payoutService.FindExistingPayoutIdAsync(recoveryReference, payoutAmount);
+                if (string.IsNullOrWhiteSpace(recoveredPayoutId))
+                    continue;
+
                 freshDb.PendingPayouts.Add(new PendingPayout
                 {
                     PayoutId = recoveredPayoutId,
@@ -444,8 +456,11 @@ public class TransactionService(
                 });
                 await freshDb.SaveChangesAsync();
                 await payoutTransaction.CommitAsync();
-                logger.LogWarning("TriggerPayout: recovered existing Ozow payout {PayoutId} for {Ref}",
-                    recoveredPayoutId, merchantRef);
+                logger.LogWarning(
+                    "TriggerPayout: recovered existing Ozow payout {PayoutId} for {Ref} via merchant reference {MerchantReference}",
+                    recoveredPayoutId,
+                    tx.DealReference,
+                    recoveryReference);
                 return true;
             }
 
