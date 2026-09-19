@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace SecureX.Api.Migrations;
 
-[Migration("20260919020000_CreateSystemFailureLogs")]
 public partial class CreateSystemFailureLogs : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
