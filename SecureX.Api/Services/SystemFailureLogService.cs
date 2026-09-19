@@ -72,9 +72,6 @@ CREATE INDEX IF NOT EXISTS idx_system_failure_logs_transaction_id ON system_fail
 CREATE INDEX IF NOT EXISTS idx_system_failure_logs_fingerprint ON system_failure_logs (service, path, status_code, error_type, resolved, last_seen_at);
 ";
 
-    public async Task EnsureSchemaAsync(CancellationToken cancellationToken = default)
-        => await db.Database.ExecuteSqlRawAsync(CreateTableSql, cancellationToken);
-
     public async Task RecordAsync(
         string severity,
         string category,
@@ -95,8 +92,6 @@ CREATE INDEX IF NOT EXISTS idx_system_failure_logs_fingerprint ON system_failure
     {
         try
         {
-            await EnsureSchemaAsync(cancellationToken);
-
             var now = DateTime.UtcNow;
             const string updateSql = @"
 UPDATE system_failure_logs
@@ -188,7 +183,6 @@ VALUES
         bool? resolved,
         CancellationToken cancellationToken = default)
     {
-        await EnsureSchemaAsync(cancellationToken);
         page = Math.Max(1, page);
         size = Math.Clamp(size, 1, 100);
 
@@ -273,7 +267,6 @@ OFFSET @offset LIMIT @limit;";
         string? notes,
         CancellationToken cancellationToken = default)
     {
-        await EnsureSchemaAsync(cancellationToken);
         const string sql = @"
 UPDATE system_failure_logs
 SET resolved = @resolved,
