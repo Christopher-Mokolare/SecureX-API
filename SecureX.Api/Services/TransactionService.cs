@@ -321,7 +321,7 @@ public class TransactionService(
         {
             var updated = await AdvanceStateAsync(txId, TransactionStatus.RequiresRefund,
                 TransactionStatus.Completed, actor, "Dispute resolved: released to seller", tx.Version);
-            _ = TriggerPayoutAsync(updated);
+            await TriggerPayoutAsync(updated);
             return updated;
         }
 
@@ -341,7 +341,7 @@ public class TransactionService(
     {
         var tx = await AdvanceStateAsync(txId, TransactionStatus.ItemDelivered,
             TransactionStatus.Completed, actor, "Buyer accepted item", expectedVersion);
-        _ = TriggerPayoutAsync(tx);
+        await TriggerPayoutAsync(tx);
         return tx;
     }
 
