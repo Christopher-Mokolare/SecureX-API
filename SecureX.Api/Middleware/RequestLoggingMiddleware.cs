@@ -78,7 +78,8 @@ public class RequestLoggingMiddleware(
                     correlationId,
                     userId,
                     provider,
-                    txId);
+                    txId,
+                    failureLogs);
             }
         }
     }
