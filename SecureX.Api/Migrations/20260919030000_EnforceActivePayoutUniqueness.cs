@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace SecureX.Api.Migrations;
 
-[Migration("20260919030000_EnforceActivePayoutUniqueness")]
 public partial class EnforceActivePayoutUniqueness : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)

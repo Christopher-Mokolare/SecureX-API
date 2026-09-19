@@ -36,6 +36,7 @@ jobs:
           dotnet ef migrations list \
             --project SecureX.Api/SecureX.Api.csproj \
             --startup-project SecureX.Api/SecureX.Api.csproj \
+            --configuration Release \
             --no-build | tee /tmp/ef-migrations.txt
           for migration in \
             20260919010000_HardenReconciliationProviderStatus \
