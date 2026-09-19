@@ -374,10 +374,18 @@ public class TransactionService(
             await using var scope = scopeFactory.CreateAsyncScope();
             var freshDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
+            // Serialize all payout attempts for the same deal at the database level.
+            // This prevents two concurrent completion/retry requests from both
+            // reaching Ozow before either local payout record is persisted.
+            await using var payoutTransaction = await freshDb.Database.BeginTransactionAsync();
+            await freshDb.Database.ExecuteSqlRawAsync(
+                "SELECT pg_advisory_xact_lock(hashtext({0}))", tx.DealReference);
+
             var seller = await freshDb.Users.FindAsync(tx.SellerId);
             if (seller is null)
             {
                 logger.LogError("TriggerPayout: seller {SellerId} not found for {Ref}", tx.SellerId, tx.DealReference);
+                await payoutTransaction.RollbackAsync();
                 return false;
             }
 
@@ -387,6 +395,7 @@ public class TransactionService(
             {
                 logger.LogWarning("TriggerPayout: seller verification incomplete for {Ref}. KYC={Kyc} AML={Aml} Liveness={Liveness}",
                     tx.DealReference, seller.IdCheckStatus, seller.AmlStatus, seller.LivenessStatus);
+                await payoutTransaction.RollbackAsync();
                 return false;
             }
 
@@ -395,6 +404,7 @@ public class TransactionService(
             {
                 logger.LogWarning("TriggerPayout: seller {SellerId} has no bank details — payout skipped. Account='{Account}' Branch='{Branch}'",
                     tx.SellerId, seller.BankAccountNumber, seller.BankBranchCode);
+                await payoutTransaction.RollbackAsync();
                 return false;
             }
 
@@ -416,6 +426,7 @@ public class TransactionService(
                     logger.LogWarning(
                         "TriggerPayout: active payout already exists for {Ref}; refusing duplicate submission",
                         tx.DealReference);
+                    await payoutTransaction.RollbackAsync();
                     return true;
                 }
             }
@@ -432,6 +443,7 @@ public class TransactionService(
                     DealReference = tx.DealReference,
                 });
                 await freshDb.SaveChangesAsync();
+                await payoutTransaction.CommitAsync();
                 logger.LogWarning("TriggerPayout: recovered existing Ozow payout {PayoutId} for {Ref}",
                     recoveredPayoutId, merchantRef);
                 return true;
@@ -457,6 +469,11 @@ public class TransactionService(
                     DealReference = tx.DealReference,
                 });
                 await freshDb.SaveChangesAsync();
+                await payoutTransaction.CommitAsync();
+            }
+            else
+            {
+                await payoutTransaction.RollbackAsync();
             }
             return payoutId is not null;
         }
