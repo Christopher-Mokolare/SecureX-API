@@ -378,7 +378,7 @@ public class TransactionService(
             if (seller is null)
             {
                 logger.LogError("TriggerPayout: seller {SellerId} not found for {Ref}", tx.SellerId, tx.DealReference);
-                return;
+                return false;
             }
 
             if (seller.IdCheckStatus != KycStatus.Approved ||
@@ -387,7 +387,7 @@ public class TransactionService(
             {
                 logger.LogWarning("TriggerPayout: seller verification incomplete for {Ref}. KYC={Kyc} AML={Aml} Liveness={Liveness}",
                     tx.DealReference, seller.IdCheckStatus, seller.AmlStatus, seller.LivenessStatus);
-                return;
+                return false;
             }
 
             if (string.IsNullOrWhiteSpace(seller.BankAccountNumber) ||
@@ -395,7 +395,7 @@ public class TransactionService(
             {
                 logger.LogWarning("TriggerPayout: seller {SellerId} has no bank details — payout skipped. Account='{Account}' Branch='{Branch}'",
                     tx.SellerId, seller.BankAccountNumber, seller.BankBranchCode);
-                return;
+                return false;
             }
 
             var notifyUrl    = config["Ozow:NotifyUrl"] ?? "";
