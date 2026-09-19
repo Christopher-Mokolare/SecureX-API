@@ -82,6 +82,67 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
         return payoutId;
     }
 
+    /// <summary>
+    /// Recovers an already-created Ozow payout when the provider accepted a request
+    /// but the local database write failed. Ozow documents this endpoint specifically
+    /// for status checks by merchant reference.
+    /// </summary>
+    public async Task<string?> FindExistingPayoutIdAsync(string merchantReference, decimal amountZar, CancellationToken cancellationToken = default)
+    {
+        var siteCode = config["Ozow:SiteCode"] ?? throw new InvalidOperationException("Ozow SiteCode is not configured");
+        var apiKey = config["Ozow:PayoutApiKey"] ?? throw new InvalidOperationException("Ozow payout API key is not configured");
+        var baseUrl = config["Ozow:PayoutBaseUrl"] ?? "https://stagingpayoutsapi.ozow.com/v1";
+
+        var client = httpFactory.CreateClient("OzowPayout");
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/getpayoutbyreference")
+        {
+            Content = new StringContent(JsonSerializer.Serialize(new
+            {
+                pageSize = 10,
+                pageIndex = 1,
+                searchFields = new[] { "0" },
+                searchString = merchantReference,
+                minAmount = amountZar,
+                maxAmount = amountZar,
+                dateFrom = DateTime.UtcNow.AddDays(-2),
+                dateTo = DateTime.UtcNow.AddMinutes(1),
+            }, JsonOpts), Encoding.UTF8, "application/json"),
+        };
+        req.Headers.Add("SiteCode", siteCode);
+        req.Headers.Add("ApiKey", apiKey);
+
+        var res = await client.SendAsync(req, cancellationToken);
+        var raw = await res.Content.ReadAsStringAsync(cancellationToken);
+        if (!res.IsSuccessStatusCode)
+        {
+            logger.LogWarning("Ozow payout lookup failed {Status} for Ref={Ref}: {Body}", res.StatusCode, merchantReference, raw);
+            return null;
+        }
+
+        using var doc = JsonDocument.Parse(raw);
+        if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            return null;
+
+        foreach (var payout in doc.RootElement.EnumerateArray())
+        {
+            var reference = payout.TryGetProperty("merchantReference", out var mr) ? mr.GetString() : null;
+            var amount = payout.TryGetProperty("amount", out var av) && av.ValueKind == JsonValueKind.Number
+                ? av.GetDecimal()
+                : (decimal?)null;
+            var id = payout.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+
+            if (string.Equals(reference, merchantReference, StringComparison.Ordinal) &&
+                amount.HasValue && amount.Value == amountZar &&
+                !string.IsNullOrWhiteSpace(id))
+            {
+                logger.LogWarning("Recovered existing Ozow payout {PayoutId} for Ref={Ref}; preventing duplicate submission", id, merchantReference);
+                return id;
+            }
+        }
+
+        return null;
+    }
+
     // ── AES-256-CBC account number encryption ────────────────────────────────
     // Ozow's payout-verify endpoint requires AES-256-CBC with a specific IV derivation.
     // CBC is mandated by the Ozow spec here — do not change the cipher mode.
