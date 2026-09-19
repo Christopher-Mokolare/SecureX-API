@@ -30,21 +30,42 @@ public class ReconciliationService(IServiceScopeFactory scopeFactory, IHttpClien
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        var inFlight = await db.Transactions
+        // Ozow "float" is the merchant-funded balance used for payouts/refunds.
+        // It is NOT the same thing as SecureX customer funds currently in escrow.
+        // Comparing escrow balances directly to Ozow float produces false financial
+        // discrepancies because pay-ins and float are separate Ozow concepts.
+        var unresolvedPayoutRefs = await db.PendingPayouts
             .AsNoTracking()
-            .Where(t => InFlightStatuses.Contains(t.Status))
+            .Where(p => !p.Resolved)
+            .Select(p => p.DealReference)
             .ToListAsync(ct);
 
-        var expectedFloat = inFlight.Sum(t => t.TotalCheckoutAmount);
+        var payoutReserve = unresolvedPayoutRefs.Count == 0
+            ? 0m
+            : await db.Transactions
+                .AsNoTracking()
+                .Where(t => t.Status == TransactionStatus.Completed &&
+                            unresolvedPayoutRefs.Contains(t.DealReference))
+                .SumAsync(t => t.ItemValue - t.SellerFee, ct);
+
+        var refundReserve = await db.Transactions
+            .AsNoTracking()
+            .Where(t => t.Status == TransactionStatus.RequiresRefund)
+            .SumAsync(t => t.TotalCheckoutAmount, ct);
+
+        var requiredFloat = payoutReserve + refundReserve;
         var provider = await FetchOzowFloatAsync(ct);
 
         var report = new ReconciliationReport
         {
-            ExpectedFloat = expectedFloat,
+            ExpectedFloat = requiredFloat,
             OzowFloat = provider.Balance,
-            Discrepancy = provider.Balance.HasValue ? expectedFloat - provider.Balance.Value : 0m,
-            AlertFired = provider.Balance.HasValue && Math.Abs(expectedFloat - provider.Balance.Value) > 0.01m,
-            Status = provider.Balance.HasValue ? "Reconciled" : "ProviderUnavailable",
+            // Positive means the required payout/refund reserve exceeds Ozow float.
+            Discrepancy = provider.Balance.HasValue ? requiredFloat - provider.Balance.Value : 0m,
+            AlertFired = provider.Balance.HasValue && requiredFloat - provider.Balance.Value > 0.01m,
+            Status = provider.Balance.HasValue
+                ? (requiredFloat - provider.Balance.Value > 0.01m ? "FloatShortfall" : "Sufficient")
+                : "ProviderUnavailable",
             Error = provider.Error,
         };
 
@@ -55,17 +76,18 @@ public class ReconciliationService(IServiceScopeFactory scopeFactory, IHttpClien
         {
             logger.LogCritical(
                 "RECONCILIATION DISCREPANCY: expected R{Expected}, Ozow R{Ozow}, diff R{Diff}",
-                expectedFloat, report.OzowFloat, report.Discrepancy);
+                requiredFloat, report.OzowFloat, report.Discrepancy);
         }
         else if (report.Status == "ProviderUnavailable")
         {
             logger.LogError(
                 "RECONCILIATION UNAVAILABLE: expected R{Expected}. Ozow balance could not be verified: {Error}",
-                expectedFloat, report.Error);
+                requiredFloat, report.Error);
         }
         else
         {
-            logger.LogInformation("Reconciliation OK. Float R{Float}", expectedFloat);
+            logger.LogInformation("Reconciliation OK. Required float R{Required}, Ozow float R{Ozow}",
+                requiredFloat, report.OzowFloat);
         }
     }
 
