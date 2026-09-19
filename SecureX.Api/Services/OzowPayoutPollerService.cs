@@ -19,8 +19,19 @@ public class OzowPayoutPollerService(IServiceScopeFactory scopeFactory, IConfigu
     // How long to wait before treating a payout as "overdue" (no webhook received)
     private static readonly TimeSpan SlaCutoff = TimeSpan.FromMinutes(5);
 
-    // Terminal statuses — stop polling once reached
+    // Parent statuses that end the current payout lifecycle.
+    // PayoutComplete can later be followed by PayoutReturned, so the notification
+    // path still records later terminal events even after the local row is resolved.
     private static readonly HashSet<int> TerminalStatuses = [5, 4, 90, 99];
+
+    // Ozow documents some final failures as sub-statuses under otherwise
+    // non-terminal parent statuses (for example status=1/subStatus=101).
+    private static readonly HashSet<int> TerminalFailureSubStatuses =
+    [
+        100, 101, 202, 204, 205,
+        401, 402, 403, 404, 405,
+        601, 9001, 9904
+    ];
 
     // Give up after this many polls (~10 min at 2-min interval) to avoid infinite polling
     private const int MaxPollAttempts = 5;
@@ -94,13 +105,17 @@ public class OzowPayoutPollerService(IServiceScopeFactory scopeFactory, IConfigu
                 logger.LogInformation("PayoutPoller: {PayoutId} status={Status} subStatus={SubStatus}",
                     pending.PayoutId, status, subStatus);
 
-                if (status == 5) // PayoutComplete
+                var terminalSuccess = status == 5;
+                var terminalFailure = TerminalStatuses.Contains(status) && status != 5 ||
+                                      TerminalFailureSubStatuses.Contains(subStatus);
+
+                if (terminalSuccess)
                     await txService.HandlePayoutCompleteAsync(pending.DealReference, pending.PayoutId);
-                else if (TerminalStatuses.Contains(status))
+                else if (terminalFailure)
                     logger.LogWarning("PayoutPoller: payout terminal non-complete. PayoutId={PayoutId} status={Status} subStatus={SubStatus} Ref={Ref}",
                         pending.PayoutId, status, subStatus, pending.DealReference);
 
-                if (TerminalStatuses.Contains(status))
+                if (terminalSuccess || terminalFailure)
                 {
                     pending.Resolved   = true;
                     pending.ResolvedAt = DateTime.UtcNow;
