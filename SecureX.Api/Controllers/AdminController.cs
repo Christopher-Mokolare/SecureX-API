@@ -109,7 +109,7 @@ public class AdminController(
                 (t.Seller != null && t.Seller.Email.Contains(search)));
 
         if (from.HasValue) query = query.Where(t => t.CreatedAt >= from.Value);
-        if (to.HasValue) query = query.Where(t => t.CreatedAt <= to.Value);
+        if (to.HasValue) query = query.Where(t => t.CreatedAt < to.Value);
 
         var items = await query.OrderByDescending(t => t.CreatedAt).ToListAsync();
 
@@ -482,35 +482,74 @@ public class AdminController(
         logger.LogInformation("=== GET MISSING PAYOUTS ===");
         logger.LogInformation("Caller: {Caller}", CallerEmail);
 
-        var completedRefs = await db.Transactions
+        var completed = await db.Transactions
+            .AsNoTracking()
             .Where(t => t.Status == TransactionStatus.Completed)
             .Include(t => t.Seller)
+            .OrderByDescending(t => t.CreatedAt)
             .ToListAsync();
 
-        var refsWithPayout = await db.PendingPayouts
+        var payoutRows = await db.PendingPayouts
+            .AsNoTracking()
+            .ToListAsync();
+
+        var notifications = await db.PayoutNotifications
+            .AsNoTracking()
+            .Where(n => n.MerchantReference != null)
+            .OrderByDescending(n => n.CreatedAt)
+            .ToListAsync();
+
+        // A completed transaction is only considered missing when there is no
+        // local payout record and no provider notification proving a successful
+        // payout. A historical failed/returned/cancelled payout must remain
+        // visible so an admin can safely retry it.
+        var terminalSuccessRefs = notifications
+            .Where(n => n.Status == 5)
+            .Select(n => n.MerchantReference!)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var latestFailureByRef = notifications
+            .Where(n => n.Status is 4 or 90 or 99 ||
+                        n.SubStatus is 100 or 101 or 202 or 204 or 205 or 401 or 402 or 403 or 404 or 405 or 601 or 9001 or 9904)
+            .GroupBy(n => n.MerchantReference!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+        var activePayoutRefs = payoutRows
+            .Where(p => !p.Resolved)
             .Select(p => p.DealReference)
-            .ToListAsync();
+            .ToHashSet(StringComparer.Ordinal);
 
-        var missing = completedRefs
-            .Where(t => !refsWithPayout.Contains(t.DealReference))
-            .Select(t => new
+        var missing = completed
+            .Where(t => !activePayoutRefs.Contains(t.DealReference) &&
+                        !terminalSuccessRefs.Contains(t.DealReference))
+            .Select(t =>
             {
-                t.Id,
-                t.DealReference,
-                t.ItemValue,
-                t.SellerFee,
-                SellerPayout = t.ItemValue - t.SellerFee,
-                SellerEmail = t.Seller?.Email,
-                SellerKycComplete = t.Seller != null &&
-                    t.Seller.IdCheckStatus == KycStatus.Approved &&
-                    t.Seller.AmlStatus == KycStatus.Approved &&
-                    t.Seller.LivenessStatus == KycStatus.Approved,
-                SellerHasBank = !string.IsNullOrWhiteSpace(t.Seller?.BankAccountNumber),
-                t.CreatedAt,
+                latestFailureByRef.TryGetValue(t.DealReference, out var failure);
+                return new
+                {
+                    t.Id,
+                    t.DealReference,
+                    t.ItemValue,
+                    t.SellerFee,
+                    SellerPayout = t.ItemValue - t.SellerFee,
+                    SellerEmail = t.Seller?.Email,
+                    SellerKycComplete = t.Seller != null &&
+                        t.Seller.IdCheckStatus == KycStatus.Approved &&
+                        t.Seller.AmlStatus == KycStatus.Approved &&
+                        t.Seller.LivenessStatus == KycStatus.Approved,
+                    SellerHasBank = !string.IsNullOrWhiteSpace(t.Seller?.BankAccountNumber),
+                    t.CreatedAt,
+                    status = failure is null ? "NotRecorded" : "ProviderFailed",
+                    payoutId = failure?.PayoutId,
+                    providerStatus = failure?.Status,
+                    providerSubStatus = failure?.SubStatus,
+                    providerReason = failure?.Reason,
+                    providerNotificationAt = failure?.CreatedAt,
+                };
             })
             .ToList();
 
-        logger.LogInformation("GET MISSING PAYOUTS: Found {Count} missing", missing.Count);
+        logger.LogInformation("GET MISSING PAYOUTS: Found {Count} actionable missing/failed payouts", missing.Count);
 
         return Ok(missing);
     }

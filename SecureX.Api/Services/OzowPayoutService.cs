@@ -15,7 +15,14 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
 
     // ── Public entry point ───────────────────────────────────────────────────
 
-    public async Task<string?> RequestPayoutAsync(
+    public sealed record OzowPayoutLookup(
+    string PayoutId,
+    decimal Amount,
+    int Status,
+    int SubStatus,
+    string? ErrorMessage);
+
+public async Task<string?> RequestPayoutAsync(
         string merchantReference,
         decimal amountZar,
         string bankGroupId,
@@ -69,10 +76,29 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
 
         var doc = JsonDocument.Parse(raw);
         var payoutId = doc.RootElement.TryGetProperty("payoutId", out var pid) ? pid.GetString() : null;
+        var payoutStatus = doc.RootElement.TryGetProperty("payoutStatus", out var ps) ? ps : default;
+        var status = payoutStatus.ValueKind == JsonValueKind.Object &&
+                     payoutStatus.TryGetProperty("status", out var statusEl) &&
+                     statusEl.ValueKind == JsonValueKind.Number
+            ? statusEl.GetInt32()
+            : 0;
+        var subStatus = payoutStatus.ValueKind == JsonValueKind.Object &&
+                        payoutStatus.TryGetProperty("subStatus", out var subStatusEl) &&
+                        subStatusEl.ValueKind == JsonValueKind.Number
+            ? subStatusEl.GetInt32()
+            : 0;
+        var errorMessage = payoutStatus.ValueKind == JsonValueKind.Object &&
+                           payoutStatus.TryGetProperty("errorMessage", out var errorEl)
+            ? errorEl.GetString()
+            : null;
 
+        // Ozow can return HTTP 200 for a rejected payout. Only a payoutId means
+        // the payout was accepted into the payout workflow.
         if (string.IsNullOrEmpty(payoutId))
         {
-            logger.LogError("Ozow requestpayout returned empty payoutId. Ref={Ref} Body={Body}", merchantReference, raw);
+            logger.LogError(
+                "Ozow requestpayout rejected. Ref={Ref} status={Status} subStatus={SubStatus} error={Error}",
+                merchantReference, status, subStatus, errorMessage);
             return null;
         }
 
@@ -87,7 +113,7 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
     /// but the local database write failed. Ozow documents this endpoint specifically
     /// for status checks by merchant reference.
     /// </summary>
-    public async Task<string?> FindExistingPayoutIdAsync(string merchantReference, decimal amountZar, CancellationToken cancellationToken = default)
+    public async Task<OzowPayoutLookup?> FindExistingPayoutAsync(string merchantReference, decimal amountZar, CancellationToken cancellationToken = default)
     {
         var siteCode = config["Ozow:SiteCode"] ?? throw new InvalidOperationException("Ozow SiteCode is not configured");
         var apiKey = config["Ozow:PayoutApiKey"] ?? throw new InvalidOperationException("Ozow payout API key is not configured");
@@ -128,17 +154,41 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
                 ? av.GetDecimal()
                 : (decimal?)null;
             var id = payout.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+            var payoutStatus = payout.TryGetProperty("payoutStatus", out var ps) ? ps : default;
+            var status = payoutStatus.ValueKind == JsonValueKind.Object &&
+                         payoutStatus.TryGetProperty("status", out var statusEl) &&
+                         statusEl.ValueKind == JsonValueKind.Number
+                ? statusEl.GetInt32()
+                : 0;
+            var subStatus = payoutStatus.ValueKind == JsonValueKind.Object &&
+                            payoutStatus.TryGetProperty("subStatus", out var subStatusEl) &&
+                            subStatusEl.ValueKind == JsonValueKind.Number
+                ? subStatusEl.GetInt32()
+                : 0;
+            var errorMessage = payoutStatus.ValueKind == JsonValueKind.Object &&
+                               payoutStatus.TryGetProperty("errorMessage", out var errorEl)
+                ? errorEl.GetString()
+                : null;
 
             if (string.Equals(reference, merchantReference, StringComparison.Ordinal) &&
                 amount.HasValue && amount.Value == amountZar &&
                 !string.IsNullOrWhiteSpace(id))
             {
-                logger.LogWarning("Recovered existing Ozow payout {PayoutId} for Ref={Ref}; preventing duplicate submission", id, merchantReference);
-                return id;
+                logger.LogWarning(
+                    "Found existing Ozow payout {PayoutId} for Ref={Ref}; status={Status} subStatus={SubStatus}",
+                    id, merchantReference, status, subStatus);
+                return new OzowPayoutLookup(id, amount.Value, status, subStatus, errorMessage);
             }
         }
 
         return null;
+    }
+
+    // Backward-compatible ID-only lookup for callers that only need existence.
+    public async Task<string?> FindExistingPayoutIdAsync(string merchantReference, decimal amountZar, CancellationToken cancellationToken = default)
+    {
+        var payout = await FindExistingPayoutAsync(merchantReference, amountZar, cancellationToken);
+        return payout?.PayoutId;
     }
 
     // ── AES-256-CBC account number encryption ────────────────────────────────
