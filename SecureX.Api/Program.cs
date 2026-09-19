@@ -81,10 +81,16 @@ var rawConnStr = builder.Configuration["ConnectionStrings:Default"] ?? "";
 var connStr = rawConnStr.StartsWith("postgresql://") || rawConnStr.StartsWith("postgres://")
     ? ConvertUriToNpgsql(rawConnStr)
     : rawConnStr;
+var migrationsAssembly = typeof(AppDbContext).Assembly.GetName().Name
+    ?? throw new InvalidOperationException("Could not determine the SecureX EF migrations assembly.");
+
 builder.Services.AddDbContext<AppDbContext>(opt =>
 {
-    opt.UseNpgsql(connStr, npg => npg.EnableRetryOnFailure(3));
-
+    opt.UseNpgsql(connStr, npg =>
+    {
+        npg.MigrationsAssembly(migrationsAssembly);
+        npg.EnableRetryOnFailure(3);
+    });
 });
 
 // ── JWT Auth ─────────────────────────────────────────────────────────────────
@@ -219,6 +225,23 @@ app.MapControllers();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+    var availableMigrations = db.Database.GetMigrations().ToArray();
+    var pendingMigrations = (await db.Database.GetPendingMigrationsAsync()).ToArray();
+
+    app.Logger.LogInformation(
+        "EF migrations discovered: {Count}; pending before startup migration: {PendingCount}; latest: {LatestMigration}",
+        availableMigrations.Length,
+        pendingMigrations.Length,
+        availableMigrations.LastOrDefault() ?? "(none)");
+
+    if (pendingMigrations.Length > 0)
+    {
+        app.Logger.LogInformation(
+            "Applying pending EF migrations: {PendingMigrations}",
+            string.Join(", ", pendingMigrations));
+    }
+
     await db.Database.MigrateAsync();
 
     // Immutable audit log trigger — no UPDATE or DELETE allowed
