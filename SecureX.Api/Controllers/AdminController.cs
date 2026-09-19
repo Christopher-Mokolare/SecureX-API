@@ -298,10 +298,16 @@ public class AdminController(
         }
 
         var retryRef = $"{tx.DealReference}-R{DateTime.UtcNow:yyMMddHHmmss}";
-        await txService.TriggerPayoutAsync(tx, retryRef);
+        var submitted = await txService.TriggerPayoutAsync(tx, retryRef);
+
+        if (!submitted)
+        {
+            logger.LogError("Payout retry failed for {DealReference} using {RetryReference}", tx.DealReference, retryRef);
+            return StatusCode(502, new ErrorResponse { Error = "Payout could not be submitted. No payout was confirmed by Ozow." });
+        }
 
         logger.LogInformation("Payout retried for: {DealReference}", tx.DealReference);
-        return Ok(new { dealReference = tx.DealReference, retryReference = retryRef, message = "Payout resubmitted" });
+        return Ok(new { dealReference = tx.DealReference, retryReference = retryRef, message = "Payout submitted" });
     }
 
     // ── GET /api/admin/users ──────────────────────────────────────────────────
