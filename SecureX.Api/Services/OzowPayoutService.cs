@@ -104,8 +104,6 @@ public class OzowPayoutService(IHttpClientFactory httpFactory, IConfiguration co
                 searchString = merchantReference,
                 minAmount = amountZar,
                 maxAmount = amountZar,
-                dateFrom = DateTime.UtcNow.AddDays(-2),
-                dateTo = DateTime.UtcNow.AddMinutes(1),
             }, JsonOpts), Encoding.UTF8, "application/json"),
         };
         req.Headers.Add("SiteCode", siteCode);
