@@ -428,7 +428,7 @@ public class AdminController(
             .OrderByDescending(r => r.RunAt)
             .Skip((page - 1) * size)
             .Take(size)
-            .Select(r => new { r.Id, r.RunAt, r.ExpectedFloat, r.OzowFloat, r.Discrepancy, r.AlertFired })
+            .Select(r => new { r.Id, r.RunAt, r.ExpectedFloat, r.OzowFloat, r.Discrepancy, r.AlertFired, r.Status, r.Error })
             .ToListAsync();
 
         logger.LogInformation("GET RECONCILIATION: Found {Total} total", total);
