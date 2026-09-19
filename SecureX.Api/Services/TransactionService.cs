@@ -420,6 +420,23 @@ public class TransactionService(
                 }
             }
 
+            // Recover a provider-side payout that was accepted before a previous
+            // local database write completed. Never submit a second payout for the
+            // same merchant reference when Ozow already has one.
+            var recoveredPayoutId = await payoutService.FindExistingPayoutIdAsync(merchantRef, payoutAmount);
+            if (!string.IsNullOrWhiteSpace(recoveredPayoutId))
+            {
+                freshDb.PendingPayouts.Add(new PendingPayout
+                {
+                    PayoutId = recoveredPayoutId,
+                    DealReference = tx.DealReference,
+                });
+                await freshDb.SaveChangesAsync();
+                logger.LogWarning("TriggerPayout: recovered existing Ozow payout {PayoutId} for {Ref}",
+                    recoveredPayoutId, merchantRef);
+                return;
+            }
+
             logger.LogInformation("TriggerPayout: dispatching R{Amount} to bank={BankGroupId} notifyUrl={NotifyUrl}",
                 payoutAmount, seller.BankGroupId, notifyUrl);
 
