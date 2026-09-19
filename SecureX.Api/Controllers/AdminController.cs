@@ -249,7 +249,7 @@ public class AdminController(
             var updated = await txService.AdvanceStateAsync(id, tx.Status, toStatus, CallerEmail, reason, tx.Version);
 
             if (toStatus == TransactionStatus.Completed)
-                _ = txService.TriggerPayoutAsync(updated);
+                await txService.TriggerPayoutAsync(updated);
 
             logger.LogInformation("Transaction advanced: {Id} from {Old} to {New}", id, tx.Status, toStatus);
             return Ok(MapTransaction(updated));
