@@ -412,6 +412,14 @@ public class TransactionService(
             var verifyUrl    = config["Ozow:VerifyUrl"] ?? "";
             var encKey       = config["Ozow:AccountNumberDecryptionKey"] ?? "";
             var payoutAmount = tx.ItemValue - tx.SellerFee;
+            if (payoutAmount <= 0m)
+            {
+                logger.LogError(
+                    "TriggerPayout: calculated payout amount is not positive for {Ref}. ItemValue={ItemValue} SellerFee={SellerFee} PayoutAmount={PayoutAmount}",
+                    tx.DealReference, tx.ItemValue, tx.SellerFee, payoutAmount);
+                await payoutTransaction.RollbackAsync();
+                return false;
+            }
 
             // A normal completion may only create one active payout for the deal.
             // Explicit admin retries use a distinct merchant reference.
@@ -445,22 +453,42 @@ public class TransactionService(
 
             foreach (var recoveryReference in recoveryReferences.Distinct(StringComparer.Ordinal))
             {
-                var recoveredPayoutId = await payoutService.FindExistingPayoutIdAsync(recoveryReference, payoutAmount);
-                if (string.IsNullOrWhiteSpace(recoveredPayoutId))
+                var existingPayout = await payoutService.FindExistingPayoutAsync(recoveryReference, payoutAmount);
+                if (existingPayout is null)
                     continue;
+
+                // Terminal failures are not recoverable payouts. Do not create a
+                // local pending record for a failed/returned/cancelled provider
+                // record, otherwise an admin retry would be blocked forever.
+                if (existingPayout.Status is 4 or 90 or 99)
+                {
+                    logger.LogWarning(
+                        "TriggerPayout: found terminal failed Ozow payout {PayoutId} for {Ref} via {MerchantReference}; allowing a fresh retry. status={Status} subStatus={SubStatus} error={Error}",
+                        existingPayout.PayoutId,
+                        tx.DealReference,
+                        recoveryReference,
+                        existingPayout.Status,
+                        existingPayout.SubStatus,
+                        existingPayout.ErrorMessage);
+                    continue;
+                }
 
                 freshDb.PendingPayouts.Add(new PendingPayout
                 {
-                    PayoutId = recoveredPayoutId,
+                    PayoutId = existingPayout.PayoutId,
                     DealReference = tx.DealReference,
+                    Resolved = existingPayout.Status == 5,
+                    ResolvedAt = existingPayout.Status == 5 ? DateTime.UtcNow : null,
                 });
                 await freshDb.SaveChangesAsync();
                 await payoutTransaction.CommitAsync();
                 logger.LogWarning(
-                    "TriggerPayout: recovered existing Ozow payout {PayoutId} for {Ref} via merchant reference {MerchantReference}",
-                    recoveredPayoutId,
+                    "TriggerPayout: recovered existing Ozow payout {PayoutId} for {Ref} via merchant reference {MerchantReference}; status={Status} subStatus={SubStatus}",
+                    existingPayout.PayoutId,
                     tx.DealReference,
-                    recoveryReference);
+                    recoveryReference,
+                    existingPayout.Status,
+                    existingPayout.SubStatus);
                 return true;
             }
 
