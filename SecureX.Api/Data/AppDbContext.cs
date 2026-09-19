@@ -125,6 +125,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.SubmittedAt).HasColumnName("submitted_at");
             e.Property(x => x.ResolvedAt).HasColumnName("resolved_at");
             e.HasIndex(x => x.Resolved).HasDatabaseName("idx_pending_payouts_resolved");
+            e.HasIndex(x => x.DealReference)
+                .HasDatabaseName("ux_pending_payouts_active_deal_reference")
+                .HasFilter("resolved = false")
+                .IsUnique();
         });
     }
 }
