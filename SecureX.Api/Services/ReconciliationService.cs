@@ -7,13 +7,6 @@ namespace SecureX.Api.Services;
 public class ReconciliationService(IServiceScopeFactory scopeFactory, IHttpClientFactory httpFactory, IConfiguration config, ILogger<ReconciliationService> logger)
     : BackgroundService
 {
-    private static readonly TransactionStatus[] InFlightStatuses =
-    [
-        TransactionStatus.FundsSecured,
-        TransactionStatus.LogisticsPending,
-        TransactionStatus.ItemDelivered,
-    ];
-
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
