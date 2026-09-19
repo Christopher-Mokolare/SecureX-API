@@ -111,6 +111,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.OzowFloat).HasColumnName("ozow_float").HasColumnType("numeric(14,2)");
             e.Property(x => x.Discrepancy).HasColumnName("discrepancy").HasColumnType("numeric(14,2)");
             e.Property(x => x.AlertFired).HasColumnName("alert_fired");
+            e.Property(x => x.Status).HasColumnName("status");
+            e.Property(x => x.Error).HasColumnName("error");
         });
 
         b.Entity<PendingPayout>(e =>
