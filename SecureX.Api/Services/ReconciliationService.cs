@@ -156,10 +156,17 @@ public class ReconciliationService(IServiceScopeFactory scopeFactory, IHttpClien
 
     private static TimeSpan TimeUntilNext0200Sast()
     {
-        var sast = TimeZoneInfo.FindSystemTimeZoneById("South Africa Standard Time");
+        var sast = FindSouthAfricaTimeZone();
         var nowSast = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, sast);
         var next = nowSast.Date.AddHours(2);
         if (nowSast >= next) next = next.AddDays(1);
         return TimeZoneInfo.ConvertTimeToUtc(next, sast) - DateTime.UtcNow;
+    }
+
+    private static TimeZoneInfo FindSouthAfricaTimeZone()
+    {
+        try { return TimeZoneInfo.FindSystemTimeZoneById("Africa/Johannesburg"); }
+        catch (TimeZoneNotFoundException) { return TimeZoneInfo.FindSystemTimeZoneById("South Africa Standard Time"); }
+        catch (InvalidTimeZoneException) { return TimeZoneInfo.FindSystemTimeZoneById("South Africa Standard Time"); }
     }
 }
