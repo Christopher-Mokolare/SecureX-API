@@ -74,6 +74,8 @@ cfg["Ses:AdminEmail"]   = cfg["SES_ADMIN_EMAIL"]   ?? "info@secureexchange.co.za
 cfg["Ses:FrontendBase"] = cfg["SES_FRONTEND_BASE"] ?? "https://www.secureexchange.co.za";
 cfg["DealToken:Secret"]     = cfg["DEAL_TOKEN_SECRET"]     ?? cfg["DealToken:Secret"];
 cfg["DealToken:ExpiryDays"] = cfg["DEAL_TOKEN_EXPIRY_DAYS"] ?? cfg["DealToken:ExpiryDays"] ?? "7";
+cfg["TransactionLimits:MinimumAmount"] = cfg["TRANSACTION_MIN_AMOUNT"] ?? cfg["TransactionLimits:MinimumAmount"] ?? "500";
+cfg["TransactionLimits:MaximumAmount"] = cfg["TRANSACTION_MAX_AMOUNT"] ?? cfg["TransactionLimits:MaximumAmount"] ?? "30000";
 
 
 // ── Database ─────────────────────────────────────────────────────────────────
@@ -132,7 +134,7 @@ builder.Services.AddScoped<EmailService>();
 builder.Services.AddAWSService<Amazon.SimpleEmailV2.IAmazonSimpleEmailServiceV2>();
 builder.Services.AddAWSService<IAmazonCloudWatchLogs>();
 builder.Services.AddScoped<AwsCloudWatchLogsService>();
-builder.Services.AddScoped<SystemFailureLogService>();
+builder.Services.Configure<SecureX.Api.Models.TransactionLimitsOptions>(cfg.GetSection("TransactionLimits"));\nbuilder.Services.AddScoped<SystemFailureLogService>();
 builder.Services.AddSingleton<DealTokenService>();
 builder.Services.AddHostedService<ReconciliationService>();
 builder.Services.AddHostedService<OzowPayoutPollerService>();
