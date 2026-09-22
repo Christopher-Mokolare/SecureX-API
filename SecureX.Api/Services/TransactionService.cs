@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using SecureX.Api.Data;
 using SecureX.Api.Models;
 
@@ -12,7 +13,8 @@ public class TransactionService(
     SmileIdService smileId,
     IConfiguration config,
     ILogger<TransactionService> logger,
-    IServiceScopeFactory scopeFactory)
+    IServiceScopeFactory scopeFactory,
+    IOptions<TransactionLimitsOptions> transactionLimits)
 {
     // ── Fee structure constants ──────────────────────────────────────────────
     // Transaction < R5,000  → R150
@@ -90,6 +92,16 @@ public class TransactionService(
 
     public async Task<Transaction> CreateAsync(CreateTransactionRequest req)
     {
+        var limits = transactionLimits.Value;
+
+        if (limits.MinimumAmount <= 0 || limits.MaximumAmount < limits.MinimumAmount)
+            throw new InvalidOperationException("Transaction limits are not configured correctly.");
+
+        if (req.ItemValue < limits.MinimumAmount || req.ItemValue > limits.MaximumAmount)
+            throw new ArgumentOutOfRangeException(
+                nameof(req.ItemValue),
+                $"Transaction value must be between R{limits.MinimumAmount:N2} and R{limits.MaximumAmount:N2}.");
+
         // ── Buyer KYC: submit Enhanced KYC job (async — result arrives via webhook) ──
         if (string.IsNullOrWhiteSpace(req.BuyerIdNumber))
             throw new InvalidOperationException("Buyer ID number is required for KYC verification");
