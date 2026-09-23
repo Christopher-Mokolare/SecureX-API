@@ -84,7 +84,6 @@ public class CreateTransactionRequest
     public string ItemTitle { get; set; } = "";
     public string ItemDescription { get; set; } = "";
     
-    [Range(1, 100000, ErrorMessage = "Transaction value must be between R1.00 and R100,000.00")]
     public decimal ItemValue { get; set; }
     
     public string SellerLocation { get; set; } = "";
