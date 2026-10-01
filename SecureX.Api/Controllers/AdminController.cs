@@ -261,6 +261,91 @@ public class AdminController(
         }
     }
 
+    // ── POST /api/admin/transactions/{id}/trigger-payout ──────────────────────
+    [HttpPost("transactions/{id:guid}/trigger-payout")]
+    public async Task<IActionResult> TriggerPayout(Guid id)
+    {
+        logger.LogInformation("=== TRIGGER PAYOUT ===");
+        logger.LogInformation("TransactionId: {Id}", id);
+        logger.LogInformation("Caller: {Caller}", CallerEmail);
+
+        var tx = await db.Transactions
+            .Include(t => t.Seller)
+            .FirstOrDefaultAsync(t => t.Id == id);
+
+        if (tx is null)
+        {
+            logger.LogWarning("Transaction not found: {Id}", id);
+            return NotFound();
+        }
+
+        if (tx.Status != TransactionStatus.Completed)
+        {
+            logger.LogWarning("Cannot trigger payout: transaction {Id} is {Status}", id, tx.Status);
+            return BadRequest(new ErrorResponse
+            {
+                Error = $"Transaction must be Completed before a payout can be triggered (current: {tx.Status})"
+            });
+        }
+
+        var activePayout = await db.PendingPayouts
+            .AsNoTracking()
+            .AnyAsync(p => p.DealReference == tx.DealReference && !p.Resolved);
+
+        if (activePayout)
+        {
+            logger.LogWarning("Cannot trigger payout for {DealReference}: an active payout is unresolved", tx.DealReference);
+            return Conflict(new ErrorResponse
+            {
+                Error = "An existing payout is still pending. Wait for it to resolve before triggering another payout."
+            });
+        }
+
+        if (tx.Seller is null)
+            return BadRequest(new ErrorResponse { Error = "Seller record is missing" });
+
+        if (tx.Seller.IdCheckStatus != KycStatus.Approved ||
+            tx.Seller.AmlStatus != KycStatus.Approved ||
+            tx.Seller.LivenessStatus != KycStatus.Approved)
+        {
+            return BadRequest(new ErrorResponse { Error = "Seller KYC, AML and liveness must all be approved before payout" });
+        }
+
+        if (string.IsNullOrWhiteSpace(tx.Seller.BankAccountNumber) ||
+            string.IsNullOrWhiteSpace(tx.Seller.BankBranchCode))
+        {
+            return BadRequest(new ErrorResponse { Error = "Seller bank details are incomplete" });
+        }
+
+        db.AuditLogs.Add(new AuditLog
+        {
+            TransactionId = tx.Id,
+            PreviousStatus = tx.Status,
+            NewStatus = tx.Status,
+            TriggerActor = CallerEmail,
+            ActionDetails = "Admin manually triggered seller payout",
+            Timestamp = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var submitted = await txService.TriggerPayoutAsync(tx);
+        if (!submitted)
+        {
+            logger.LogError("Admin payout trigger failed for {DealReference}", tx.DealReference);
+            return StatusCode(502, new ErrorResponse
+            {
+                Error = "Payout could not be submitted. Ozow did not confirm a payout request."
+            });
+        }
+
+        logger.LogInformation("Admin payout triggered successfully for {DealReference}", tx.DealReference);
+        return Ok(new
+        {
+            dealReference = tx.DealReference,
+            message = "Payout submitted",
+        });
+    }
+
     // ── POST /api/admin/transactions/{id}/retry-payout ────────────────────────
     [HttpPost("transactions/{id:guid}/retry-payout")]
     public async Task<IActionResult> RetryPayout(Guid id)
