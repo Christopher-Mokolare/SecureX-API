@@ -265,9 +265,6 @@ public class TransactionService(
         tx.Status = next;
         tx.UpdatedAt = DateTime.UtcNow;
 
-        if (next == TransactionStatus.ItemDelivered)
-            tx.InspectionWindowEndsAt = DateTime.UtcNow.AddHours(24);
-
         // Add directly to DbSet — never via navigation property to avoid EF tracking existing audit logs as Modified
         db.AuditLogs.Add(new AuditLog
         {
@@ -351,8 +348,17 @@ public class TransactionService(
 
     public async Task<Transaction> CompleteAsync(Guid txId, string actor, int expectedVersion)
     {
+        var existing = await db.Transactions.FindAsync(txId)
+            ?? throw new KeyNotFoundException($"Transaction {txId} not found");
+
+        if (!existing.InspectionWindowEndsAt.HasValue && actor != "system-expiry")
+            throw new InvalidOperationException("Buyer collection has not been confirmed; the inspection window has not started");
+
+        if (actor != "system-expiry" && DateTime.UtcNow >= existing.InspectionWindowEndsAt!.Value)
+            throw new InvalidOperationException("24-hour inspection window has expired");
+
         var tx = await AdvanceStateAsync(txId, TransactionStatus.ItemDelivered,
-            TransactionStatus.Completed, actor, "Buyer accepted item", expectedVersion);
+            TransactionStatus.Completed, actor, actor == "system-expiry" ? "Inspection window expired without buyer action; auto-accepted" : "Buyer accepted item", expectedVersion);
         await TriggerPayoutAsync(tx);
         return tx;
     }
@@ -366,7 +372,10 @@ public class TransactionService(
         if (tx.Status != TransactionStatus.ItemDelivered)
             throw new InvalidOperationException("Item must be in ItemDelivered status to reject");
 
-        if (tx.InspectionWindowEndsAt.HasValue && DateTime.UtcNow > tx.InspectionWindowEndsAt.Value)
+        if (!tx.InspectionWindowEndsAt.HasValue)
+            throw new InvalidOperationException("Buyer collection has not been confirmed; the inspection window has not started");
+
+        if (DateTime.UtcNow >= tx.InspectionWindowEndsAt.Value)
             throw new InvalidOperationException("24-hour inspection window has expired");
 
         var safeReason = new string(reason.Where(c => c != '\n' && c != '\r').ToArray());
