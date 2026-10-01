@@ -69,6 +69,47 @@ public class EmailService(
     }
 
     /// <summary>
+    /// Sent to the buyer when SecureX confirms the item has arrived at the
+    /// designated collection location. The 24-hour inspection window does not
+    /// start until admin confirms the buyer has physically collected it.
+    /// </summary>
+    public async Task SendItemReadyForCollectionAsync(User buyer, Transaction tx)
+    {
+        var firstName = FirstName(buyer.FullName);
+        var subject = $"Item ready for collection — {tx.DealReference}";
+        var html = WrapHtml(
+            subject,
+            $@"<h1 style=""margin:0 0 16px;font-size:22px;color:#0f172a;"">Hello {Escape(firstName)},</h1>
+<p style=""margin:0 0 16px;font-size:15px;line-height:1.6;color:#334155;"">
+  SecureX has confirmed that your item has arrived at the designated courier/collection location.
+</p>
+<p style=""margin:0 0 16px;font-size:15px;line-height:1.6;color:#334155;"">
+  Please collect the item. Your <strong>24-hour inspection window starts only after SecureX confirms your collection</strong>.
+</p>
+<table width=""100%"" cellpadding=""0"" cellspacing=""0"" style=""background:#f8fafc;border-radius:8px;padding:20px;margin:20px 0;"">
+  <tr><td style=""padding:6px 0;color:#64748b;font-size:13px;"">Deal reference</td><td style=""padding:6px 0;text-align:right;color:#0f172a;font-size:13px;font-weight:600;"">{Escape(tx.DealReference)}</td></tr>
+  <tr><td style=""padding:6px 0;color:#64748b;font-size:13px;"">Item</td><td style=""padding:6px 0;text-align:right;color:#0f172a;font-size:13px;font-weight:600;"">{Escape(tx.ItemTitle)}</td></tr>
+  <tr><td style=""padding:6px 0;color:#64748b;font-size:13px;"">Collection location</td><td style=""padding:6px 0;text-align:right;color:#0f172a;font-size:13px;font-weight:600;"">{Escape(tx.SellerLocation)}</td></tr>
+</table>
+<p style=""margin:0;font-size:13px;line-height:1.6;color:#64748b;"">You will receive another notification when collection is confirmed and the inspection countdown begins.</p>");
+        var text = $@"Hello {firstName},
+
+SecureX has confirmed that your item has arrived at the designated courier/collection location.
+
+Deal reference: {tx.DealReference}
+Item: {tx.ItemTitle}
+Collection location: {tx.SellerLocation}
+
+Please collect the item. Your 24-hour inspection window starts only after SecureX confirms your collection.
+
+You will receive another notification when collection is confirmed.
+
+— SecureX
+{_frontendBase}";
+        await SendAsync(buyer.Email, subject, html, text);
+    }
+
+    /// <summary>
     /// Sent to the ops inbox when a buyer rejects an item within the
     /// inspection window and a dispute is opened.
     /// </summary>
