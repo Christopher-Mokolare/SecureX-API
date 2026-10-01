@@ -408,6 +408,12 @@ public class TransactionsController(
             return BadRequest(new { error = $"Transaction must be in 'ItemDelivered' status (current: {tx.Status})" });
         }
 
+        if (!tx.InspectionWindowEndsAt.HasValue)
+            return BadRequest(new { error = "Buyer collection has not been confirmed; the inspection window has not started" });
+
+        if (DateTime.UtcNow >= tx.InspectionWindowEndsAt.Value)
+            return BadRequest(new { error = "24-hour inspection window has expired" });
+
         try
         {
             var updated = await txService.AdvanceStateAsync(
@@ -491,6 +497,12 @@ public class TransactionsController(
             logger.LogWarning("Cannot reject item: Transaction status is {Status}, expected ItemDelivered", tx.Status);
             return BadRequest(new { error = $"Transaction must be in 'ItemDelivered' status (current: {tx.Status})" });
         }
+
+        if (!tx.InspectionWindowEndsAt.HasValue)
+            return BadRequest(new { error = "Buyer collection has not been confirmed; the inspection window has not started" });
+
+        if (DateTime.UtcNow >= tx.InspectionWindowEndsAt.Value)
+            return BadRequest(new { error = "24-hour inspection window has expired" });
 
         try
         {
@@ -605,23 +617,27 @@ public class TransactionsController(
 
         try
         {
-            var updated = await txService.AdvanceStateAsync(
-                id,
-                TransactionStatus.LogisticsPending,
-                TransactionStatus.ItemDelivered,
-                CallerEmail,
-                "Seller confirmed delivery",
-                tx.Version);
+            // Seller reports handover to the courier/collection process, but does not
+            // change the escrow state. Admin remains the source of truth for arrival.
+            db.AuditLogs.Add(new AuditLog
+            {
+                TransactionId = tx.Id,
+                PreviousStatus = tx.Status,
+                NewStatus = tx.Status,
+                TriggerActor = CallerEmail,
+                ActionDetails = "Seller reported item handed to courier/collection logistics; awaiting admin arrival confirmation"
+            });
+            await db.SaveChangesAsync();
 
-            logger.LogInformation("Delivery confirmed for transaction: {DealReference}", tx.DealReference);
+            logger.LogInformation("Seller handover recorded for transaction: {DealReference}", tx.DealReference);
 
             return Ok(new
             {
-                transactionId = updated.Id,
-                dealReference = updated.DealReference,
-                status = updated.Status.ToString(),
-                inspectionWindowEndsAt = updated.InspectionWindowEndsAt,
-                message = "Delivery confirmed, inspection window started"
+                transactionId = tx.Id,
+                dealReference = tx.DealReference,
+                status = tx.Status.ToString(),
+                inspectionWindowEndsAt = tx.InspectionWindowEndsAt,
+                message = "Handover recorded. SecureX admin will confirm arrival at the collection location."
             });
         }
         catch (InvalidOperationException ex)
