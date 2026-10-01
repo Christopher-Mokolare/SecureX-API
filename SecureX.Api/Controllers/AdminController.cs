@@ -18,7 +18,8 @@ public class AdminController(
     SmileIdService smileIdService,
     IConfiguration config,
     ILogger<AdminController> logger,
-    AwsCloudWatchLogsService awsLogs) : ControllerBase
+    AwsCloudWatchLogsService awsLogs,
+    EmailService emailService) : ControllerBase
 {
     private string CallerEmail => User.FindFirstValue(ClaimTypes.Email) ?? "unknown";
 
@@ -170,6 +171,90 @@ public class AdminController(
                 payout.SubmittedAt,
                 payout.ResolvedAt,
             },
+        });
+    }
+
+    // ── POST /api/admin/transactions/{id}/confirm-arrival ─────────────────────
+    [HttpPost("transactions/{id:guid}/confirm-arrival")]
+    public async Task<IActionResult> ConfirmArrival(Guid id)
+    {
+        logger.LogInformation("=== CONFIRM ITEM ARRIVAL ===");
+        logger.LogInformation("TransactionId: {Id}, Caller: {Caller}", id, CallerEmail);
+
+        var tx = await db.Transactions
+            .Include(t => t.Buyer)
+            .Include(t => t.Seller)
+            .FirstOrDefaultAsync(t => t.Id == id);
+
+        if (tx is null) return NotFound(new ErrorResponse { Error = "Transaction not found" });
+        if (tx.Status != TransactionStatus.LogisticsPending)
+            return BadRequest(new ErrorResponse { Error = $"Transaction must be in LogisticsPending status (current: {tx.Status})" });
+
+        try
+        {
+            var updated = await txService.AdvanceStateAsync(
+                id, TransactionStatus.LogisticsPending, TransactionStatus.ItemDelivered,
+                CallerEmail, "Admin confirmed item received at courier/collection location", tx.Version);
+
+            if (updated.Buyer is not null)
+                await emailService.SendItemReadyForCollectionAsync(updated.Buyer, updated);
+
+            return Ok(new
+            {
+                transactionId = updated.Id,
+                dealReference = updated.DealReference,
+                status = updated.Status.ToString(),
+                inspectionWindowEndsAt = updated.InspectionWindowEndsAt,
+                message = "Item arrival confirmed. Buyer notified; inspection window will start after collection."
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new ErrorResponse { Error = ex.Message });
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            return Conflict(new ErrorResponse { Error = ex.Message });
+        }
+    }
+
+    // ── POST /api/admin/transactions/{id}/confirm-collection ─────────────────
+    [HttpPost("transactions/{id:guid}/confirm-collection")]
+    public async Task<IActionResult> ConfirmCollection(Guid id)
+    {
+        logger.LogInformation("=== CONFIRM BUYER COLLECTION ===");
+        logger.LogInformation("TransactionId: {Id}, Caller: {Caller}", id, CallerEmail);
+
+        var tx = await db.Transactions
+            .Include(t => t.Buyer)
+            .Include(t => t.Seller)
+            .FirstOrDefaultAsync(t => t.Id == id);
+
+        if (tx is null) return NotFound(new ErrorResponse { Error = "Transaction not found" });
+        if (tx.Status != TransactionStatus.ItemDelivered)
+            return BadRequest(new ErrorResponse { Error = $"Transaction must be in ItemDelivered status (current: {tx.Status})" });
+        if (tx.InspectionWindowEndsAt.HasValue)
+            return Conflict(new ErrorResponse { Error = "Buyer collection has already been confirmed and the inspection window is active." });
+
+        tx.InspectionWindowEndsAt = DateTime.UtcNow.AddHours(24);
+        tx.UpdatedAt = DateTime.UtcNow;
+        db.AuditLogs.Add(new AuditLog
+        {
+            TransactionId = tx.Id,
+            PreviousStatus = tx.Status,
+            NewStatus = tx.Status,
+            TriggerActor = CallerEmail,
+            ActionDetails = $"Admin confirmed buyer collection. 24-hour inspection window started; deadline {tx.InspectionWindowEndsAt:O}"
+        });
+
+        await db.SaveChangesAsync();
+        return Ok(new
+        {
+            transactionId = tx.Id,
+            dealReference = tx.DealReference,
+            status = tx.Status.ToString(),
+            inspectionWindowEndsAt = tx.InspectionWindowEndsAt,
+            message = "Buyer collection confirmed. 24-hour inspection window started."
         });
     }
 
