@@ -333,6 +333,9 @@ public class AdminController(
             var reason = string.IsNullOrWhiteSpace(req.Reason) ? $"Admin manual advance to {toStatus}" : req.Reason;
             var updated = await txService.AdvanceStateAsync(id, tx.Status, toStatus, CallerEmail, reason, tx.Version);
 
+            if (toStatus == TransactionStatus.ItemDelivered && updated.Buyer is not null)
+                await emailService.SendItemReadyForCollectionAsync(updated.Buyer, updated);
+
             if (toStatus == TransactionStatus.Completed)
                 await txService.TriggerPayoutAsync(updated);
 
